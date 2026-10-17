@@ -27,6 +27,7 @@ function boot(pages, opts) {
       remove: async (id) => { (listeners.tr || []).forEach(f => f(id)); }, onUpdated: ev("tu"), onRemoved: ev("tr") },
     scripting: { executeScript: async (o) => {
       const url = tabUrl[o.target.tabId];
+      if (o.args && typeof o.args[0] === "string" && o.args[0].indexOf("/api/quota") === 0) return [{ result: opts.quota || { errno: -6 } }];
       if (o.args && o.args[0] && "waitRe" in o.args[0]) {
         const pg = pages[url];
         if (pg === "THROW") throw new Error("Cannot access contents of url");
@@ -110,7 +111,7 @@ const wait = (ms) => new Promise(r => realTimeout(r, ms));
   pages[bp.accountUrl] = { text: "我的会员\n超级会员 SVIP\n到期时间：" + renewTxt + "\n已用 120GB / 5TB\n" + "x".repeat(300) };
   B = boot(pages);
   r = await B.send({ type: "CATALOG_DIAGNOSE", id: "baidu-pan" });
-  t("诊断：返回解析结果和页面开头文字，不写入订阅", r.ok && r.result.status === "ok" && r.excerpt.indexOf("超级会员") >= 0 && B.store.subs.length === 0);
+  t("诊断：返回解析结果和页面开头文字，不会新建订阅", r.ok && r.result.status === "ok" && r.excerpt.indexOf("超级会员") >= 0 && B.store.subs.length === 0);
   r = await B.send({ type: "CATALOG_ADD", id: "claude" });
   t("大模型不走目录添加（有专门的读取）", !r.ok);
 
@@ -261,6 +262,19 @@ const wait = (ms) => new Promise(r => realTimeout(r, ms));
     const g = (id) => B4.store.subs.find(x => x.id === id);
     t("升级：有观看记录的服务改为读观看记录，没有的不变", g("b1").mode === "activity" && g("b1").provider === "bilibili" && g("n1").mode === "browser");
     t("腾讯视频退回「账户页 + 浏览器访问」", g("t1").mode === "browser" && !g("t1").provider && !g("t1").sig);
+  }
+
+  // 百度网盘：页面文字里没有空间时，用网盘自己的用量接口
+  {
+    const G = 1024 ** 3;
+    const pg2 = Object.assign({}, pages); pg2["https://pan.baidu.com/disk/main"] = { url: "https://pan.baidu.com/disk/main", text: "首页 我的文件 超级会员 SVIP " + "x".repeat(300) };
+    const B5 = boot(pg2, { quota: { used: 1651 * G, total: 3181 * G, errno: 0 } });
+    const r5 = await B5.send({ type: "CATALOG_ADD", id: "baidu-pan" });
+    const b5 = B5.store.subs[0];
+    t("百度网盘：从用量接口读到空间 1.6 TB / 3.1 TB", r5.ok && b5.account.storage && b5.account.storage.pct === 52, b5 && b5.account);
+    B5.store.subs[0].account = { status: "ok", plan: { label: "超级会员", paid: true } };   // 旧数据：没有空间
+    const d5 = await B5.send({ type: "CATALOG_DIAGNOSE", id: "baidu-pan" });
+    t("诊断读成功：结果存进订阅，列表里能看到空间", d5.ok && B5.store.subs[0].account.storage && B5.store.subs[0].account.storage.pct === 52 && B5.store.subs[0].lastChecked);
   }
 
   // 8. B站活动记录 provider 存在

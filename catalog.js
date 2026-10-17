@@ -96,7 +96,9 @@
     { id: "netease-music", name: "网易云音乐", cat: "cn", domains: ["music.163.com"], accountUrl: "https://music.163.com/store/vip", currency: "¥",
       plans: [[/黑胶\s*SVIP/i, "黑胶SVIP", true], [/黑胶\s*VIP/i, "黑胶VIP", true]],
       free: /开通黑胶|立即开通/ },
-    { id: "baidu-pan", name: "百度网盘", cat: "cn", domains: ["pan.baidu.com"], accountUrl: "https://pan.baidu.com/disk/main", currency: "¥", storage: true,
+    { id: "baidu-pan", name: "百度网盘", cat: "work", domains: ["pan.baidu.com"], accountUrl: "https://pan.baidu.com/disk/main", currency: "¥", storage: true,
+      // 空间用量那块不在页面文字里（innerText 读不到），改用网盘网页版自己调用的接口（同一个网站、带登录状态，只读用量）
+      quotaApi: "/api/quota?checkexpire=1&checkfree=1",
       plans: [[/超级会员|SVIP/i, "超级会员", true], [/普通会员/, "普通会员", true]],
       free: /开通会员|立即开通/ },
 
@@ -138,13 +140,15 @@
     const o = opts || {};
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     const start = Date.now();
-    let waitRe = null;
+    let waitRe = null, needRe = null;
     try { if (o.waitRe) waitRe = new RegExp(o.waitRe, "i"); } catch (e) { waitRe = null; }
+    // needRe：还要等的内容（比如网盘的「已用/总空间」常常比套餐信息晚加载）
+    try { if (o.needRe) needRe = new RegExp(o.needRe, "i"); } catch (e) { needRe = null; }
     let text = "", last = -1, stable = 0;
     while (Date.now() - start < (o.timeoutMs || 9000)) {
       text = (document.body && document.body.innerText) || "";
-      if (waitRe && waitRe.test(text) && text.length > 200) break;
-      if (text.length === last && text.length > 0) { if (++stable >= 3) break; } else { stable = 0; last = text.length; }
+      if (waitRe && waitRe.test(text) && text.length > 200 && (!needRe || needRe.test(text))) break;
+      if (text.length === last && text.length > 0) { if (++stable >= (needRe ? 8 : 3)) break; } else { stable = 0; last = text.length; }
       await sleep(500);
     }
     return {
@@ -163,6 +167,14 @@
 
   function num(s) { return parseFloat(String(s).replace(/,/g, "")); }
 
+  // 接口给的是字节数
+  function storageFromBytes(used, total) {
+    used = Number(used); total = Number(total);
+    if (!(total > 0) || !(used >= 0) || used > total * 1.1) return null;
+    const G = 1024 * 1024 * 1024, u = used / G, t = total / G;
+    const fmt = (gb) => gb >= 1024 ? (Math.round(gb / 1024 * 10) / 10) + " TB" : gb >= 1 ? (Math.round(gb * 10) / 10) + " GB" : Math.round(gb * 1024) + " MB";
+    return { usedGB: Math.round(u * 100) / 100, totalGB: Math.round(t * 100) / 100, pct: Math.round(used / total * 100), label: `${fmt(u)} / ${fmt(t)}` };
+  }
   function parseStorage(text) {
     const m = String(text || "").match(RE_STORAGE);
     if (!m) return null;
@@ -220,7 +232,7 @@
     if (!plan && p.free && p.free.test(text)) plan = { label: "免费版", paid: false };
 
     if (!plan && (RE_LOGIN_URL.test(url) || RE_LOGIN_TEXT.test(text))) { out.status = "logged_out"; return out; }
-    if (p.storage) out.storage = parseStorage(text);
+    if (p.storage) out.storage = (page && page.quota && storageFromBytes(page.quota.used, page.quota.total)) || parseStorage(text);
     if (!plan) return out;
     out.status = "ok";
     out.plan = plan;
@@ -248,6 +260,8 @@
   }
 
   // 给页面文字等待用：任一套餐关键词出现就可以停止等待
+  // 读账户页时除了套餐还要等到的内容：有空间信息的服务要等「已用 / 总量」出来
+  function needPattern(p) { return p && p.storage && !p.quotaApi ? RE_STORAGE.source : ""; }
   function waitPattern(p) {
     return (p.plans || []).map((x) => x[0].source).concat(p.free ? [p.free.source] : []).join("|");
   }
@@ -277,7 +291,7 @@
   }
 
   const api = { CATEGORIES, PROVIDERS: P, BY_ID, pageTextExtract, parseAccountPage, parseStorage, parsePrice, parseRenew,
-                accountAdvice, waitPattern, discover, originsOf };
+                accountAdvice, waitPattern, needPattern, storageFromBytes, discover, originsOf };
   globalThis.SubCatalog = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })();

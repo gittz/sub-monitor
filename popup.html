@@ -580,6 +580,30 @@
     .sv-used { font-size:12px; white-space:nowrap; }
     .hero-art { display:none; }
   }
+  /* 深色按钮悬停时保持深底白字（通用的 button:hover 会把背景换成浅色） */
+  .sv-sortdone:hover, .sv-sortdone:focus-visible { background:#1f2937; color:#fff; }
+  .dlg-btn.primary:hover { background:#1f2937; border-color:#1f2937; color:#fff; }
+  .dlg-btn.danger:hover { background:#b91c1c; border-color:#b91c1c; color:#fff; }
+  @media (prefers-color-scheme: dark) {
+    .sv-sortdone:hover, .sv-sortdone:focus-visible { background:#e4e4e7; color:#18181b; }
+    .dlg-btn.primary:hover { background:#e4e4e7; border-color:#e4e4e7; color:#18181b; }
+  }
+  /* 添加时的加载提示 */
+  svg.spin { animation:ba-spin .9s linear infinite; flex:none; }
+  .ad-card.busy, .ad-card.busy:disabled { opacity:1; }
+  .ad-card.busy { cursor:progress; border-color:var(--accent); background:color-mix(in srgb, var(--accent) 6%, var(--bg)); }
+  .ad-card.busy .cp { color:var(--accent); }
+  .ad-card.busy svg.spin { color:var(--accent); }
+  .ad-btn.busy { display:inline-flex; align-items:center; gap:4px; cursor:progress; opacity:.8; }
+  #formSubmit svg.spin { vertical-align:-3px; margin-right:6px; }
+  #busyToast { position:fixed; left:50%; bottom:14px; transform:translateX(-50%); z-index:900; display:flex; align-items:center; gap:8px;
+               width:max-content; max-width:calc(100% - 32px); padding:9px 14px; border-radius:10px; background:#111827; color:#fff; font-size:12.5px;
+               box-shadow:0 8px 24px rgba(17,24,39,.22); }
+  #busyToast[hidden] { display:none; }
+  #busyToast svg { flex:none; width:15px; height:15px; color:#fff; }
+  #busyToast.ok svg { color:#4ade80; }
+  #busyToast.bad { background:#9a3412; }
+  @media (prefers-color-scheme: dark) { #busyToast { background:#f4f4f5; color:#18181b; } #busyToast svg { color:#18181b; } #busyToast.ok svg { color:#15803d; } #busyToast.bad { background:#fed7aa; } }
 </style>
 </head>
 <body>

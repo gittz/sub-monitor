@@ -149,8 +149,24 @@ function spendHtml(subs) {
   if (!keys.length) return "—";
   return keys.map(c => { const [a, b] = by[c].toFixed(2).split("."); return `${esc(c)}${a}<span class="cents">.${b}</span>`; }).join(" + ");
 }
+// 列表里名称下面那行：有读到的关键信息就直接显示（不用展开），没有就显示分类
 function subCaption(s) {
   const p = s.catalogId && SubCatalog.BY_ID[s.catalogId];
+  const md = (t) => new Date(t).toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" });
+  // 大模型：套餐 + 额度（读得到的话），否则套餐 + 近 7 天对话数
+  const L = s.llm;
+  if (L && L.plan) {
+    const u = L.usage || {};
+    // 列表里位置有限：优先显示本周额度（更能说明这个月值不值），没有再显示 5 小时额度；两项都在展开后的详情里
+    if (u.week != null) return `${L.plan.label} · 本周额度 ${Math.round(u.week)}%`;
+    if (u.fiveHour != null) return `${L.plan.label} · 5 小时额度 ${Math.round(u.fiveHour)}%`;
+    return `${L.plan.label} · 近 7 天 ${(L.stats && L.stats.convs7) || 0} 个对话`;
+  }
+  const a = s.account;
+  // 网盘：空间用量
+  if (p && p.storage && a && a.storage) return `空间 ${a.storage.label} · ${a.storage.pct}%`;
+  // 其它收录服务：套餐 + 续费日
+  if (p && a && a.plan && (a.status === "ok" || !a.status)) return a.plan.label + (a.renewAt ? ` · ${md(a.renewAt)} 续费` : "");
   if (p) return SV_CAT[p.cat] || "";
   if (s.provider === "claude" || s.provider === "chatgpt") return "AI 助手";
   return s.urlPattern || (s.mode === "none" ? "电视 / 手机" : "");
@@ -365,15 +381,17 @@ const ACCT_ERR = {
   read_failed: (n) => `打开了 ${n} 的账户页但没读到内容（可能被安全验证拦住，或页面改版了）。`
 };
 const cdiagOut = {};   // 诊断结果只放在内存里，关掉弹窗就没了
+const cdiagBusy = new Set();   // 正在诊断的订阅
 function diagText(d) {
   if (!d || !d.ok) return "诊断失败。";
+  if (!d.error && !d.result) return "诊断失败：没有拿到结果。";
   if (d.error) return "读取失败：" + esc(d.error);
   const a = d.result;
   return esc([
     `状态：${a.status}　最终地址：${a.url || "?"}`,
     `套餐：${a.plan ? a.plan.label + (a.plan.paid ? "（付费）" : "（免费）") : "未认出"}`,
     `价格：${a.price ? a.price.currency + a.price.monthly + "/月" : "未读到"}　续费日：${a.renewAt ? new Date(a.renewAt).toLocaleDateString("zh-CN") : "未读到"}`,
-    a.storage ? `空间：${a.storage.label}（${a.storage.pct}%）` : "",
+    a.storage ? `空间：${a.storage.label}（${a.storage.pct}%）` : d.quotaError ? `空间：没读到（用量接口：${d.quotaError}）` : "",
     d.injectError ? `注入失败：${d.injectError}` : "",
     d.activity ? (d.activity.error ? "观看记录：读取失败" : d.activity.loggedOut ? "观看记录：没登录"
       : `观看记录：抓到 ${d.activity.count} 条${d.activity.topLabel ? `，第一组「${d.activity.topLabel}」` : ""}${d.activity.count ? "（" + d.activity.ids.join("、") + "）" : "，没认出条目"}`) : "",
@@ -400,7 +418,8 @@ function acctHtml(s, st) {
   } else {
     body = `<div>还没读过账户页，点「检查」读一次。</div>`;
   }
-  btns.push(`<button class="mini" data-cdiag="${esc(s.id)}">诊断</button>`);
+  const diagOpen = !!cdiagOut[s.id] && !cdiagBusy.has(s.id);
+  btns.push(`<button class="mini" data-cdiag="${esc(s.id)}">${diagOpen ? "收起诊断" : "诊断"}</button>`);
   const adv = a.status === "ok" ? SubCatalog.accountAdvice(p, a, st) : null;
   const advHtml = adv && adv.level !== "keep" ? `<div class="advice ${esc(adv.level)}">${esc(adv.text)}</div>` : "";
   const diag = cdiagOut[s.id] ? `<div class="cdiag">${cdiagOut[s.id]}</div>` : "";
@@ -556,20 +575,23 @@ async function addLlm(kind) {
   if (atLimit()) { stEl.className = "secstatus bad"; stEl.innerHTML = limitText(); return; }
   const granted = await requestOrigins([LLM_ORIGINS[kind]], "llm", kind);
   if (!granted) { stEl.className = "secstatus bad"; stEl.textContent = LLM_ERR.no_permission(name); return; }
+  if (adding.has(kind)) return;
   stEl.className = "secstatus";
   stEl.textContent = `正在读取 ${name}…（如果没开着，会在后台短暂打开网站）`;
-  const r = await send({ type: "LLM_QUICK_ADD", kind });
+  const r = await withAdding(kind, `正在添加 ${name}：读取套餐和对话记录…`, () => send({ type: "LLM_QUICK_ADD", kind }));
   await showLlmResult(kind, r);
 }
 async function showLlmResult(kind, r) {
   const name = LLM_NAMES[kind], stEl = $("catStatus");
   if (!r || !r.ok) {
     stEl.className = "secstatus bad";
-    if (r && r.reason === "limit") { stEl.innerHTML = limitText(); return; }
+    if (r && r.reason === "limit") { stEl.innerHTML = limitText(); busyToast(""); return; }
     stEl.textContent = (LLM_ERR[r && r.reason] || LLM_ERR.read_failed)(name);
+    busyToast(`${name} 没添加成功`, "bad");
     return;
   }
   await refresh();
+  busyToast(`已添加 ${name}`, "ok");
   stEl.className = "secstatus";
   stEl.textContent = `已添加 ${name}：${r.sub.llm.plan.label}${r.sub.priceEstimated ? `，月费按公开价估为 $${r.sub.price}，不对可以点「编辑」改` : ""}。`;
 
@@ -699,6 +721,7 @@ function showGrantResult() {
     }
     el.className = "secstatus";
     el.textContent = `已授权，正在读取 ${name}…`;
+    if (g.action === "catalog" || g.action === "llm") busyToast(`正在添加 ${name}，后台读取中（通常 5~15 秒）…`, "busy");
     return;
   }
   grantShownAt = g.at;
@@ -767,6 +790,8 @@ function renderCatalog() {
   $("catGrid").innerHTML = list.length
     ? list.map(p => tracked.indexOf(p.id) >= 0
         ? `<div class="ad-card added" title="已添加">${avatarHtml(p.id, p.name)}<span><span class="nm">${esc(p.name)}</span><span class="cp">已添加</span></span>${ICON_OK}</div>`
+        : adding.has(p.id)
+        ? `<button type="button" class="ad-card busy" disabled aria-busy="true">${avatarHtml(p.id, p.name)}<span><span class="nm">${esc(p.name)}</span><span class="cp">正在读取…</span></span>${SPIN}</button>`
         : `<button type="button" class="ad-card" data-cat="${esc(p.id)}" title="${esc(p.note || p.name)}">${avatarHtml(p.id, p.name)}<span><span class="nm">${esc(p.name)}</span><span class="cp">${esc(CAT_CAPTION(p))}</span></span>${ICON_PLUS}</button>`).join("")
     : `<div class="ad-empty">没收录「${esc($("catSearch").value.trim())}」。<br><a href="#" data-goto="manual">手动添加这个网址</a>，统计访问次数和最近访问时间。</div>`;
   renderDiscover();
@@ -794,7 +819,7 @@ function renderDiscover() {
     ? rows.map(({ p, n }) => `<div class="ad-row">${avatarHtml(p.id, p.name)}
         <div class="meta"><div class="nm">${esc(p.name)}</div><div class="cp">近 ${days} 天有 ${n} 天访问过 · ${esc(CAT_CAPTION(p))}</div>
           <span class="ad-bar"><i style="width:${Math.round(n / max * 100)}%"></i></span></div>
-        <button type="button" class="ad-btn sm" data-cat="${esc(p.id)}">添加</button></div>`).join("")
+        ${adding.has(p.id) ? `<button type="button" class="ad-btn sm busy" disabled>${SPIN}读取中</button>` : `<button type="button" class="ad-btn sm" data-cat="${esc(p.id)}">添加</button>`}</div>`).join("")
     : `<div class="ad-empty">${recs.length ? `近 ${days} 天没有访问过、还没添加的收录服务。` : "还没有访问记录。插件装好后会记下你访问过哪些订阅网站。"}</div>`;
   const b = $("badgeHistory");
   b.hidden = !rows.length; b.textContent = rows.length;
@@ -808,6 +833,29 @@ const CAT_ERR = {
   no_permission: (n) => `没有获得读取 ${n} 的授权。`,
   unknown: () => `不认识这个服务。`
 };
+// ---------- 添加时的加载提示 ----------
+// 添加收录服务要在后台打开网站读取，常常要 5~15 秒：卡片上转圈，底部再给一条提示，免得以为没反应
+const adding = new Set();
+const SPIN = '<svg class="spin" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.2-8.56"/></svg>';
+let toastTimer = null;
+function busyToast(text, kind) {
+  let el = $("busyToast");
+  if (!el) { el = document.createElement("div"); el.id = "busyToast"; el.setAttribute("role", "status"); document.body.appendChild(el); }
+  if (toastTimer) { clearTimeout(toastTimer); toastTimer = null; }
+  if (!text) { el.hidden = true; return; }
+  el.hidden = false;
+  el.className = kind || "busy";
+  el.innerHTML = (kind === "busy" || !kind ? SPIN : kind === "ok" ? ICON_OK : "") + `<span>${esc(text)}</span>`;
+  if (kind === "ok" || kind === "bad") toastTimer = setTimeout(() => { el.hidden = true; }, 4000);
+}
+async function withAdding(id, text, fn) {
+  adding.add(id);
+  renderCatalog();
+  busyToast(text, "busy");
+  try { return await fn(); }
+  finally { adding.delete(id); renderCatalog(); }
+}
+
 async function addFromCatalog(id) {
   const p = SubCatalog.BY_ID[id];
   if (!p) return;
@@ -817,16 +865,17 @@ async function addFromCatalog(id) {
   if (atLimit()) { stEl.className = "secstatus bad"; stEl.innerHTML = limitText(); return; }
   const granted = await requestOrigins(SubCatalog.originsOf(p), "catalog", id);
   if (!granted) { stEl.className = "secstatus bad"; stEl.textContent = CAT_ERR.no_permission(p.name); return; }
+  if (adding.has(id)) return;
   stEl.className = "secstatus";
   stEl.textContent = `正在读取 ${p.name} 的账户页…（会在后台短暂打开，通常 5~15 秒）`;
-  const r = await send({ type: "CATALOG_ADD", id });
+  const r = await withAdding(id, `正在添加 ${p.name}，后台读取中（通常 5~15 秒）…`, () => send({ type: "CATALOG_ADD", id }));
   await refresh();
   showCatalogResult(p, r);
 }
 function showCatalogResult(p, r) {
   const stEl = $("catStatus");
-  if (r && r.reason === "limit") { stEl.className = "secstatus bad"; stEl.innerHTML = limitText(); return; }
-  if (!r || !r.ok) { stEl.className = "secstatus bad"; stEl.textContent = (CAT_ERR[r && r.reason] || CAT_ERR.unknown)(p.name); return; }
+  if (r && r.reason === "limit") { stEl.className = "secstatus bad"; stEl.innerHTML = limitText(); busyToast(""); return; }
+  if (!r || !r.ok) { stEl.className = "secstatus bad"; stEl.textContent = (CAT_ERR[r && r.reason] || CAT_ERR.unknown)(p.name); busyToast(`${p.name} 没添加成功`, "bad"); return; }
   const a = (r.sub && r.sub.account) || {};
   const MSG = {
     ok: () => `已添加 ${p.name}：${a.plan.label}${a.price ? `，${a.price.currency}${a.price.monthly}/月` : ""}${a.renewAt ? `，${new Date(a.renewAt).toLocaleDateString("zh-CN")} 续费` : ""}。`,
@@ -836,6 +885,7 @@ function showCatalogResult(p, r) {
   };
   stEl.className = a.status === "ok" ? "secstatus" : "secstatus bad";
   stEl.textContent = (MSG[a.status] || MSG.unknown)();
+  busyToast(a.status === "ok" ? `已添加 ${p.name}` : `已添加 ${p.name}，套餐没读到`, a.status === "ok" ? "ok" : "bad");
   if (p.activity) stEl.textContent += " 另外会读取它的观看/播放记录来判断是否在用。";
 }
 // 卡片里点到的可能是头像 / 文字，往上找带 data-cat 的元素
@@ -1049,8 +1099,12 @@ $("form").addEventListener("submit", async (e) => {
   }
   // 手动改过月费：以后不再用账户页读到的价格覆盖
   if (old && old.priceSource === "page" && sub.price !== old.price) sub.priceSource = "user";
-  const r = await send({ type: "SAVE_SUB", sub });
+  const btn = $("formSubmit"), label = btn.textContent;
+  btn.disabled = true; btn.innerHTML = SPIN + (old ? "保存中…" : "添加中…");
+  let r;
+  try { r = await send({ type: "SAVE_SUB", sub }); } finally { btn.disabled = false; btn.textContent = label; }
   if (r && r.reason === "limit") { $("formErr").innerHTML = limitText(); $("formErr").hidden = false; return; }
+  busyToast(old ? `已保存「${sub.name}」` : `已添加「${sub.name}」`, "ok");
   await refresh();
   resetForm();
   show("subs");
@@ -1096,12 +1150,17 @@ $("subList").addEventListener("click", async (e) => {
       if (ok) await checkSubs([s0.id]);
       return;
     }
-    // 诊断：读一次账户页，显示解析结果和页面开头的文字（不保存）
+    // 诊断结果已经展开：再点一下收起
+    if (cdiagOut[s0.id] && !cdiagBusy.has(s0.id)) { delete cdiagOut[s0.id]; renderSubs(); return; }
+    if (cdiagBusy.has(s0.id)) return;
+    // 诊断：读一次账户页，显示解析结果和页面开头的文字（读成功会顺便更新订阅）
     const ok = await requestOrigins(SubCatalog.originsOf(p), "diag", p.id);
     if (!ok) { cdiagOut[s0.id] = "没有获得授权。"; renderSubs(); return; }
+    cdiagBusy.add(s0.id);
     cdiagOut[s0.id] = "正在读取账户页…";
     renderSubs();
-    const d = await send({ type: "CATALOG_DIAGNOSE", id: p.id });
+    let d = null;
+    try { d = await send({ type: "CATALOG_DIAGNOSE", id: p.id }); } finally { cdiagBusy.delete(s0.id); }
     cdiagOut[s0.id] = diagText(d);
     renderSubs();
     return;

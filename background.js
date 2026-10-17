@@ -689,9 +689,28 @@ async function readAccount(p) {
     try {
       const res = await chrome.scripting.executeScript({
         target: { tabId: tab.id }, func: SubCatalog.pageTextExtract,
-        args: [{ waitRe: SubCatalog.waitPattern(p), timeoutMs: 9000 }]
+        args: [{ waitRe: SubCatalog.waitPattern(p), needRe: SubCatalog.needPattern(p), timeoutMs: 12000 }]
       });
       page = res && res[0] && res[0].result;
+      // 有用量接口的服务（百度网盘）：在网站里调它自己的接口拿已用 / 总空间
+      if (page && p.quotaApi) {
+        try {
+          const q = await chrome.scripting.executeScript({
+            target: { tabId: tab.id }, world: "MAIN",
+            func: async (path) => {
+              try {
+                const r = await fetch(path, { credentials: "include" });
+                const j = await r.json();
+                return j && j.total ? { used: j.used, total: j.total, errno: j.errno } : { errno: j && j.errno };
+              } catch (e) { return { error: String(e && e.message || e) }; }
+            },
+            args: [p.quotaApi]
+          });
+          const qr = q && q[0] && q[0].result;
+          if (qr && qr.total) page.quota = { used: qr.used, total: qr.total };
+          else page.quotaError = qr ? (qr.error || ("errno " + qr.errno)) : "no result";
+        } catch (e) { page.quotaError = String(e && e.message || e); }
+      }
     } catch (e) {
       // 注入失败通常是被跳到了别的域名（多半是登录页），记下最终地址交给解析判断
       let url = "";
@@ -1037,7 +1056,15 @@ async function catalogDiagnose(id) {
     const ar = await readActivity(getProviderConfig({ provider: p.activity }));
     activity = ar ? { count: (ar.ids || []).length, ids: (ar.ids || []).slice(0, 5), topLabel: ar.topLabel || "", loggedOut: ar.loggedOut, url: ar.pageUrl || "" } : { error: true };
   }
-  return { ok: true, result: a, injectError: r.page.injectError || null, activity,
+  // 读成功了就顺便存进订阅（诊断看到的和列表里显示的一致）
+  if (a.status === "ok") {
+    await withLock(async () => {
+      const subs = await getSubs();
+      const sub = subs.find(x => x.catalogId === id);
+      if (sub) { applyAccount(sub, p, r, Date.now()); sub.lastChecked = Date.now(); await setSubs(subs, { fromSync: true }); scheduleSync(); }
+    });
+  }
+  return { ok: true, result: a, injectError: r.page.injectError || null, activity, quotaError: r.page.quotaError || null,
            textLength: (r.page.text || "").length, excerpt: (r.page.text || "").slice(0, 600) };
 }
 

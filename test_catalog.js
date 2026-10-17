@@ -62,5 +62,23 @@ const recs = [{ hostname: "www.netflix.com", time: NOW - DAY }, { hostname: "ope
 const d = C.discover(recs, ["iqiyi"], NOW, 30);
 check("按访问次数排序、排除已加入、只看 30 天内", d.join() === "spotify,netflix");
 
-console.log(`\n结果：${pass} 通过 / ${fail} 失败`);
-process.exit(fail ? 1 : 0);
+// 网盘：空间信息比套餐晚加载，要等它出来
+(async () => {
+  const bp = { plans: [[/超级会员|SVIP/i, "超级会员", true]], storage: true };   // 没有用量接口、空间写在页面上的网盘
+  const head = "首页 我的文件 超级会员 SVIP " + "x".repeat(300);
+  let text = head;
+  global.document = { body: { get innerText() { return text; } } };
+  global.location = { href: "https://pan.baidu.com/disk/main" };
+  setTimeout(() => { text = head + "\n前往电脑端,立享50G\n1651G/3181G"; }, 1200);
+  const r = await C.pageTextExtract({ waitRe: C.waitPattern(bp), needRe: C.needPattern(bp), timeoutMs: 6000 });
+  const a = C.parseStorage(r.text);
+  check("空间信息比套餐晚加载：等它出来再读（1651G/3181G）", a && a.usedGB === 1651 && a.totalGB === 3181 && a.pct === 52);
+  check("没有空间信息的服务不用等", C.needPattern(C.BY_ID["netflix"]) === "");
+  const G = 1024 ** 3;
+  const sb = C.storageFromBytes(1651 * G, 3181 * G);
+  check("百度网盘：用量接口给的字节数换算成 1.6 TB / 3.1 TB", sb && sb.usedGB === 1651 && sb.pct === 52 && sb.label === "1.6 TB / 3.1 TB");
+  const pa = C.parseAccountPage(C.BY_ID["baidu-pan"], { url: "https://pan.baidu.com/disk/main", text: "超级会员 SVIP " + "x".repeat(300), quota: { used: 1651 * G, total: 3181 * G } }, {}, Date.now());
+  check("百度网盘：页面上没有空间文字时用接口数据", pa.storage && pa.storage.totalGB === 3181);
+  console.log(`\n结果：${pass} 通过 / ${fail} 失败`);
+  process.exit(fail ? 1 : 0);
+})();

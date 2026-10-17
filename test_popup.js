@@ -29,7 +29,7 @@ const store = { subs: [{ id: "1", name: "Notion", urlPattern: "notion.so", mode:
 w.chrome = {
   runtime: { sendMessage: (m, cb) => { sent.push(m); setTimeout(() => cb(m.type === "GET_STATE"
       ? { ok: true, ...store, lastCheck: null, paused: false, subLimit: 5, guestLimit: 5, auth: null, googleLogin: true, providers: [{ key: "youtube", name: "YouTube", verified: true, note: "" }], noActivityPage: [] }
-      : { ok: true }), 0); } },
+      : { ok: true }), m.type === "CATALOG_ADD" ? 60 : 0); } },
   storage: { onChanged: { addListener() {} } },
   permissions: { request: async () => true, contains: async () => w.__has !== false },
   tabs: { create() {} },
@@ -106,12 +106,31 @@ setTimeout(async () => {
   t("搜不到 → 一键转到手动添加并带上搜索词", !$("sec-manual").hidden && $("f-url").value === "zzzunknown");
   w.document.querySelector('.tab[data-pane="manual"]').click();
   const sub2 = $("subList").innerHTML;
+  {
+    const btn = () => $("subList").querySelector('[data-cdiag="2"]');
+    btn().click(); await new Promise(r => setTimeout(r, 30));
+    const opened = !!$("subList").querySelector(".cdiag") && btn().textContent === "收起诊断";
+    btn().click(); await new Promise(r => setTimeout(r, 10));
+    t("诊断结果可以收起：按钮变「收起诊断」，再点一下收起", opened && !$("subList").querySelector(".cdiag") && btn().textContent === "诊断");
+  }
+  {
+    const cap = w.subCaption;
+    t("列表小字：Claude 显示套餐和本周额度", cap({ provider: "claude", llm: { plan: { label: "Pro" }, usage: { fiveHour: 62, week: 47 } } }) === "Pro · 本周额度 47%");
+    t("列表小字：ChatGPT 没有额度时显示近 7 天对话数", cap({ provider: "chatgpt", llm: { plan: { label: "Free" }, stats: { convs7: 0 } } }) === "Free · 近 7 天 0 个对话");
+    t("列表小字：Netflix 显示套餐和续费日", /^Standard · \d\d\/\d\d 续费$/.test(cap({ catalogId: "netflix", account: { status: "ok", plan: { label: "Standard" }, renewAt: Date.now() + 5 * DAY } })));
+    t("列表小字：没登录读不到时退回分类", cap({ catalogId: "netflix", account: { status: "logged_out", plan: { label: "Standard" } } }) === "影音娱乐");
+  }
+  t("网盘：列表里直接显示空间用量", /空间 120 GB \/ 5 TB · 2%/.test(sub2));
   t("账户信息：套餐 + 空间 + 降档建议", /超级会员 SVIP/.test(sub2) && /120 GB/.test(sub2) && /换小一档/.test(sub2));
   t("未登录：提示不代表没在用，给「打开账户页」", /不代表你没在用/.test(sub2) && /data-copen="3"/.test(sub2));
   sent.length = 0;
   $("catSearch").value = ""; $("catSearch").dispatchEvent(new w.Event("input"));
   $("catGrid").querySelector('[data-cat="netflix"]').click();
   await new Promise(r => setTimeout(r, 20));
+  t("添加中：卡片转圈显示「正在读取…」，底部有加载提示", !!$("catGrid").querySelector(".ad-card.busy") && /正在读取/.test($("catGrid").textContent) &&
+    $("busyToast") && !$("busyToast").hidden && /正在添加 Netflix/.test($("busyToast").textContent));
+  await new Promise(r => setTimeout(r, 100));
+  t("添加完：卡片恢复，提示换成结果", !$("catGrid").querySelector(".ad-card.busy") && /Netflix/.test($("busyToast").textContent) && !/正在添加/.test($("busyToast").textContent));
   t("点服务名：申请权限后发 CATALOG_ADD", sent.some(m => m.type === "CATALOG_ADD" && m.id === "netflix"));
   t("已经有权限：不弹授权，也不用登记，直接添加", !sent.some(m => m.type === "PENDING_GRANT" || m.type === "OPEN_GRANT_WINDOW"));
   // 登录
