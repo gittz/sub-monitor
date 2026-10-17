@@ -362,6 +362,19 @@ const wait = (ms) => new Promise(r => realTimeout(r, ms));
       document: { body: { innerText: "" }, querySelectorAll: () => [] }, location: { href: "https://www.youku.com/ku/usc/index" } });
     const yr = await vm.runInNewContext("(" + ex.toString() + ")", ctx8)();
     t("优酷：找到观看记录列表，最近一次 = 最新的观看时间，带片名", yr.count === 2 && Math.abs(yr.lastTs - sec * 1000) < 1 && yr.sample[0] === "繁花 第1集" && yr.ids[0].indexOf("XNb@") === 0, yr);
+    // 接口里没有、观看记录写在页面里的情况
+    const mkDoc = (scripts, anchors, text) => ({ body: { innerText: text }, querySelectorAll: (q) => q.indexOf("script") === 0 ? scripts : q === "a[href]" ? anchors : [] });
+    const A = (href, txt) => ({ getAttribute: () => href, textContent: txt });
+    const base8 = { Date, Number, String, Math, Promise, Array, Object, JSON, RegExp, isFinite, setTimeout, Node: function () {}, location: { href: "https://www.youku.com/ku/usc/index" } };
+    const w9 = { __idlesubsHist: { calls: [], bodies: [] } }; w9.window = w9;
+    const ssr = 'window.__INITIAL_DATA__ = {"history":{"list":[{"showName":"九门","title":"九门 第30集","vid":"XNx","lastPlayTime":' + (sec - 7200) + '}]}};';
+    const yr2 = await vm.runInNewContext("(" + ex.toString() + ")", Object.assign(w9, base8, { document: mkDoc([{ textContent: ssr }], [], "") }))();
+    t("优酷：页面自带的初始数据里也能找到观看记录", yr2.count === 1 && yr2.sample[0] === "九门 第30集" && /script/.test(yr2.source), yr2);
+    const w10 = { __idlesubsHist: { calls: [], bodies: [] } }; w10.window = w10;
+    const anchors = [A("//www.youku.com/ku/webvip", "续费会员"), A("//v.youku.com/v_show/id_XNaaa.html", "独播"), A("//v.youku.com/v_show/id_XNaaa.html", "异人之下 第01集"),
+                     A("//v.youku.com/v_show/id_XNbbb.html", "何以中国 第01集")];
+    const yr3 = await vm.runInNewContext("(" + ex.toString() + ")", Object.assign(w10, base8, { document: mkDoc([], anchors, "历史播放\n更早\n过滤短视频\n异人之下 第01集") }))();
+    t("优酷：退回读页面卡片：条目 ID、片名、日期分组", yr3.ids.join() === "XNaaa,XNbbb" && yr3.sampleTitles[0] === "异人之下 第01集" && yr3.topLabel === "更早", yr3);
     // 监听脚本：JSONP 包装也能解析
     const win2 = { fetch: () => Promise.resolve({ headers: { get: () => "application/javascript" }, clone: () => ({ text: () => Promise.resolve('mtopjsonp3({"ret":["SUCCESS"],"data":{"a":1}})') }) }) };
     win2.window = win2;

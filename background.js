@@ -531,7 +531,7 @@ async function youkuExtract() {
   const NOT_WATCH = /update|publish|release|online|create|expire|begin|start|end|modify|upload/i;
   const WATCH_KEY = /play|watch|view|record|his|last/i, TS_KEY = /time|date|stamp|^ts$|gmt/i, TITLE_KEY = /title|name/i, ID_KEY = /^(vid|videoid|video_id|encodevid|encode_vid|showid|show_id|id)$/i;
   function info(o) {
-    let ts = 0, tsOther = 0, title = "", id = "";
+    let ts = 0, tsOther = 0, title = "", titleT = "", id = "";
     const scan = (x, depth) => {
       if (!x || typeof x !== "object" || depth > 1) return;
       for (const k of Object.keys(x)) {
@@ -541,11 +541,15 @@ async function youkuExtract() {
           const t = tsVal(v);
           if (WATCH_KEY.test(k)) { if (t > ts) ts = t; } else if (t > tsOther) tsOther = t;
         }
-        if (!title && TITLE_KEY.test(k) && typeof v === "string" && v.trim() && v.length <= 120 && !/^https?:/.test(v)) title = v.trim();
+        // 片名优先用 title 字段（带集数），没有再用 name（showName 之类只有剧名）
+        if (TITLE_KEY.test(k) && typeof v === "string" && v.trim() && v.length <= 120 && !/^https?:/.test(v)) {
+          if (/title/i.test(k) ? !titleT : !title) { if (/title/i.test(k)) titleT = v.trim(); else title = v.trim(); }
+        }
         if (!id && ID_KEY.test(k) && (typeof v === "string" || typeof v === "number") && String(v)) id = String(v);
       }
     };
     scan(o, 0);
+    title = titleT || title;
     return { ts: ts || tsOther, title, id: id || title };
   }
   function best(json) {
@@ -578,19 +582,48 @@ async function youkuExtract() {
   }
   const H = window.__idlesubsHist || { calls: [] };
   const calls = H.calls.slice(0, 12).map(c => ({ appid: c.path, ret: "", n: c.size }));
+  // 接口里没有：观看记录可能直接写在页面 HTML 里（服务端渲染），看看页面带的初始数据
+  if (!found) {
+    const cands = [];
+    try {
+      for (const k of Object.keys(window)) {
+        if (!/^__|INITIAL|STATE|DATA|PAGE|SSR/i.test(k) || /^__idlesubs/.test(k)) continue;
+        const v = window[k];
+        if (v && typeof v === "object" && !(v instanceof Node) && v !== window) cands.push({ path: "window." + k, json: v });
+      }
+    } catch (e) {}
+    document.querySelectorAll("script:not([src])").forEach((sc, i) => {
+      const t = sc.textContent || "";
+      if (t.length < 50 || t.length > 3000000) return;
+      const a = t.indexOf("{"), b = t.lastIndexOf("}");
+      if (a < 0 || b <= a) return;
+      try { cands.push({ path: "script#" + i, json: JSON.parse(t.slice(a, b + 1)) }); } catch (e) {}
+    });
+    for (const c of cands) { let r = null; try { r = best(c.json); } catch (e) {} if (r && (!found || r.length > found.length)) { found = r; foundPath = c.path; } }
+  }
   if (found && found.length) {
     found.sort((a, b) => b.ts - a.ts);
     return { ids: found.map(x => x.id + "@" + Math.floor(x.ts / 60000)), lastTs: found[0].ts, count: found.length,
              sample: found.slice(0, 3).map(x => x.title), calls, source: foundPath, strategy: "youku" };
   }
-  // 退回：页面上的视频链接 + 第一组日期标题
+  // 退回：页面上的观看记录卡片（片名链接）+ 第一组日期标题（今天 / 昨天 / 更早…）
   const text = (document.body && document.body.innerText) || "";
-  const links = [...document.querySelectorAll("a[href*='v_show/id_']")];
-  const ids = [], seen = new Set();
-  links.forEach(a => { const m = (a.getAttribute("href") || "").match(/id_([A-Za-z0-9=_-]+)/); if (m && !seen.has(m[1])) { seen.add(m[1]); ids.push(m[1]); } });
-  const lab = text.match(/(^|\n)\s*(今天|昨天|前天|星期[一二三四五六日天]|周[一二三四五六日天]|\d{1,2}月\d{1,2}日|\d{4}[-/.]\d{1,2}[-/.]\d{1,2})\s*(\n|$)/);
+  const ids = [], titles = [], seen = new Set();
+  const VID_HREF = /v_show\/id_([A-Za-z0-9=_-]+)|[?&](?:vid|showid|id)=([A-Za-z0-9=_-]+)|\/(?:video|show|alipay_video)\/(?:id_)?([A-Za-z0-9=_-]+)/;
+  const hrefs = [];
+  document.querySelectorAll("a[href]").forEach(a => {
+    const href = a.getAttribute("href") || "", txt = (a.textContent || "").trim();
+    const m = href.match(VID_HREF);
+    // 卡片的片名链接：「异人之下 第01集」这种；角标（独播 / 27集全）、会员入口之类的跳过
+    const looksTitle = txt.length >= 2 && txt.length <= 60 && !/^(独播|帧享|VIP|会员|\d+集全|\d+期全|更新至.*)$/.test(txt) && !/会员|升级|登录|续费|客户端/.test(txt);
+    if (!m && !looksTitle) return;
+    if (m && hrefs.length < 3) hrefs.push(href.slice(0, 120));
+    const id = m ? (m[1] || m[2] || m[3]) : null;
+    if (id && looksTitle && !seen.has(id)) { seen.add(id); ids.push(id); titles.push(txt); }
+  });
+  const lab = text.match(/(^|\n)\s*(今天|今日|昨天|前天|星期[一二三四五六日天]|周[一二三四五六日天]|\d{1,2}月\d{1,2}日|\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|一周内|近一周|7天内|七天内|更早)\s*(\n|$)/);
   const loggedOut = /passport|login/i.test(location.href) || (!ids.length && /登录/.test(text) && !/观看记录|历史/.test(text));
-  return { ids, topLabel: lab ? lab[2] : "", loggedOut: loggedOut || undefined, calls, strategy: "youku", pageUrl: location.href, fallback: true };
+  return { ids, topLabel: lab ? lab[2] : "", sampleTitles: titles.slice(0, 3), hrefs, loggedOut: loggedOut || undefined, calls, strategy: "youku", pageUrl: location.href, fallback: true };
 }
 
 // 在观看记录页里运行：等接口结果，取出条目 ID 和最近一次观看时间
@@ -675,7 +708,8 @@ async function applyActivityResult(sub, r) {
     if (watched > (sub.lastWatched || 0) || sig !== sub.sig) sub.notified = null;
     sub.lastWatched = watched;
     // 最近看的片名（接口给了才有）。只存在本机、不同步到云端；带上对应的观看时间，别的设备同步来更新的观看时间时就不再显示旧片名
-    if (r.lastTs > 0 && r.sample && r.sample[0]) sub.watchTitle = { title: String(r.sample[0]).slice(0, 80), at: watched };
+    const ttl = (r.sample && r.sample[0]) || (r.sampleTitles && r.sampleTitles[0]);
+    if (ttl) sub.watchTitle = { title: String(ttl).slice(0, 80), at: watched };
     sub.watchAt = now;          // 什么时候读的观看记录（多台设备同步时以读得晚的为准）
     sub.lastUsed = watched;
     sub.lastUsedFloor = false;
@@ -1296,6 +1330,7 @@ function catalogAdd(id) {
 async function catalogDiagnose(id) {
   const p = SubCatalog.BY_ID[id];
   if (!p || p.special) return { ok: false, reason: "unknown" };
+  try { await upgradeCatalogModes(); } catch (e) {}
   const r = await readAccount(p);
   if (r.error) return { ok: true, error: r.error };
   const a = SubCatalog.parseAccountPage(p, r.page, { parseAmount: MailLib.parseAmount, parseDate: MailLib.parseMailDate }, Date.now());
@@ -1304,7 +1339,8 @@ async function catalogDiagnose(id) {
   if (p.activity && CATALOG[p.activity]) {
     const ar = await readActivity(getProviderConfig({ provider: p.activity }));
     activity = ar ? { count: (ar.ids || []).length, ids: (ar.ids || []).slice(0, 5), topLabel: ar.topLabel || "", loggedOut: ar.loggedOut, url: ar.pageUrl || "",
-                      lastTs: ar.lastTs || 0, sample: ar.sample || [], calls: ar.calls || null, fresh: ar.fresh || null } : { error: true };
+                      lastTs: ar.lastTs || 0, sample: ar.sample || ar.sampleTitles || [], calls: ar.calls || null, fresh: ar.fresh || null,
+                      source: ar.source || (ar.fallback ? "页面卡片" : ""), hrefs: ar.hrefs || null, pageUrl: ar.pageUrl || "" } : { error: true };
     // 诊断时读到的观看记录也直接更新到订阅上（和点「检查」效果一样）
     if (activity && a.status === "logged_out") activity.guestOnly = true;   // 账户页没登录：观看记录不采用
     if (ar && ar.ids && ar.ids.length && a.status !== "logged_out") {
