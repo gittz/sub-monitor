@@ -1,7 +1,7 @@
 // 订阅闲置监控 · 后台
 // 两种使用信号：
 //   mode = "browser"  → 监控浏览器是否访问过该订阅的网址
-//   mode = "activity" → 读取服务自身的活动记录（目前支持 YouTube 观看历史，设备无关）
+//   mode = "activity" → 读取服务自身的活动记录（YouTube / B站 / 腾讯视频等，设备无关）
 //   mode = "none"     → 用户标注"我在电视/手机上用"，不参与闲置判断（防误报）
 
 // 注意：importScripts 载入的脚本与本文件共享同一个全局作用域，
@@ -235,11 +235,11 @@ const CATALOG = {
     name: "B站",
     domain: "bilibili.com",
     activityUrl: "https://www.bilibili.com/account/history",
-    strategy: "generic",
+    strategy: "bilibili",
     idPattern: "/video/(BV[0-9A-Za-z]+)",
     loginUrlPattern: "passport\\.bilibili\\.com|/login",
-    verified: false,
-    note: "读取 B站的历史记录页（网页、App、电视上看的都会同步到这里）。页面结构未实测，请先点「诊断」验证。"
+    verified: true,
+    note: "读取 B站历史记录接口返回的观看时间和视频名称（网页、App、电视上看的都会同步到这里）。需在本浏览器登录 B站。"
   },
   custom: {
     name: "自定义（自己填活动页地址）",
@@ -395,6 +395,103 @@ function youtubeExtract() {
       return { ids, topLabel, loggedOut, historyOff, sampleTitles: titles[0] ? titles.filter(Boolean) : [] };
 }
 
+// B站历史记录页会调用 /x/web-interface/history/cursor，接口同时给出视频名称和 view_at。
+// 直接在页面主世界里请求，沿用当前标签页的登录 Cookie，不把记录发到插件之外。
+async function bilibiliExtract() {
+  const out = { ids: [], topLabel: "", loggedOut: null, historyOff: false, pageUrl: location.href,
+                lastTs: 0, count: 0, sample: [], sampleTitles: [], strategy: "bilibili", source: "api" };
+  const cleanTitle = (v) => String(v == null ? "" : v).replace(/<[^>]*>/g, "").replace(/&amp;/g, "&").trim();
+  const tsOf = (v) => {
+    if (v == null || v === "") return 0;
+    const n = Number(v);
+    if (n === n && n !== Infinity && n !== -Infinity && n > 0) return n < 100000000000 ? n * 1000 : n;
+    const t = Date.parse(String(v));
+    return isNaN(t) ? 0 : t;
+  };
+  const idOf = (item) => {
+    const h = item && item.history || {};
+    const raw = h.bvid || item.bvid || h.aid || item.aid || h.epid || item.epid || h.oid || item.oid ||
+                h.cid || item.cid || item.id || item.uri || item.link;
+    if (raw == null || raw === "") return "";
+    const s = String(raw);
+    const m = s.match(/(?:video\/|av|BV)([0-9A-Za-z]+)/i);
+    return m ? (/^BV/i.test(s) ? "BV" + m[1] : m[1]) : s;
+  };
+  const items = [];
+  const addItems = (list) => {
+    if (!Array.isArray(list)) return;
+    list.forEach(item => {
+      if (!item || typeof item !== "object") return;
+      const id = idOf(item);
+      const ts = tsOf(item.view_at || item.viewAt || item.view_at_ms || item.timestamp || item.time);
+      const title = cleanTitle(item.title || item.show_title || item.long_title ||
+        (item.history && (item.history.title || item.history.show_title)));
+      if (id || title) items.push({ id: id || title, ts, title });
+    });
+  };
+
+  const urls = [
+    "https://api.bilibili.com/x/web-interface/history/cursor?max=30&view_at=0",
+    "https://www.bilibili.com/x/web-interface/history/cursor?max=30&view_at=0"
+  ];
+  let apiReady = false;
+  for (const url of urls) {
+    try {
+      if (typeof fetch !== "function") break;
+      const resp = await fetch(url, { credentials: "include", cache: "no-store", headers: { Accept: "application/json" } });
+      const json = await resp.json();
+      const rawCode = json && json.code;
+      const code = rawCode == null ? null : Number(rawCode);
+      const message = String((json && (json.message || json.msg)) || "");
+      if (code === -101 || code === -400 || /登录|登陆|未登录|请先登录|login/i.test(message)) {
+        out.loggedOut = true;
+        continue;
+      }
+      if (code != null && code !== 0) continue;
+      const data = json && json.data;
+      if (data && Array.isArray(data.list)) { apiReady = true; addItems(data.list); }
+      if (Array.isArray(data)) { apiReady = true; addItems(data); }
+      if (apiReady) break;
+    } catch (e) { /* API 地址或跨域策略变化时继续尝试下一个 */ }
+  }
+
+  // 接口不可用时仍尽量沿用通用页面抓取，至少保留视频 ID 和名称。
+  if (!items.length && !apiReady) {
+    out.source = "页面";
+    try {
+      document.querySelectorAll("a[href]").forEach(a => {
+        const href = a.getAttribute("href") || "";
+        const m = href.match(/(?:\/video\/((?:BV)?[0-9A-Za-z]+)|\/bangumi\/play\/(ep\d+))/i);
+        if (!m) return;
+        const id = m[1] || m[2];
+        const title = cleanTitle((a.getAttribute && (a.getAttribute("title") || a.getAttribute("aria-label"))) || a.textContent);
+        if (!items.some(x => x.id === id)) items.push({ id, ts: 0, title });
+      });
+    } catch (e) {}
+  }
+
+  items.sort((a, b) => b.ts - a.ts);
+  const seen = new Set();
+  const uniq = items.filter(x => {
+    const k = x.id + "@" + x.ts;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  }).slice(0, 50);
+  out.ids = uniq.map(x => x.id + (x.ts ? "@" + Math.floor(x.ts / 60000) : ""));
+  out.lastTs = uniq.reduce((m, x) => Math.max(m, x.ts), 0);
+  out.count = uniq.length;
+  out.sample = uniq.filter(x => x.title).slice(0, 3).map(x => x.title);
+  out.sampleTitles = out.sample.slice();
+  if (!out.ids.length && out.loggedOut !== true) {
+    try {
+      const text = (document.body && document.body.innerText) || "";
+      if (/历史记录.*(关闭|暂停)|观看记录.*(关闭|暂停)/i.test(text)) out.historyOff = true;
+    } catch (e) {}
+  }
+  return out;
+}
+
 // 把目录项和用户在订阅里填的覆盖值合成一份最终配置
 function getProviderConfig(sub) {
   const base = CATALOG[sub && sub.provider] || null;
@@ -442,6 +539,8 @@ async function readActivity(cfg) {
       world: "MAIN",
       ...(cfg.strategy === "youtube"
         ? { func: youtubeExtract }
+        : cfg.strategy === "bilibili"
+        ? { func: bilibiliExtract }
         : { func: genericExtract, args: [{
             idPattern: cfg.idPattern,
             containerSelector: cfg.containerSelector,
