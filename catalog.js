@@ -82,7 +82,6 @@
       plans: [[/超级影视\s*VIP|SVIP/i, "超级影视VIP", true], [/VIP会员|腾讯视频VIP|好莱坞会员/i, "VIP", true]],
       free: /开通VIP|立即开通|您还不是/ },
     { id: "youku", name: "优酷", cat: "cn", domains: ["youku.com"], accountUrl: "https://vip.youku.com/", currency: "¥",
-      activity: "youku",
       plans: [[/酷喵\s*VIP|酷喵会员/, "酷喵VIP", true], [/优酷\s*VIP|VIP会员/i, "优酷VIP", true]],
       free: /开通会员|立即开通|您还不是/ },
     { id: "mgtv", name: "芒果TV", cat: "cn", domains: ["mgtv.com"], accountUrl: "https://www.mgtv.com/vip/", currency: "¥",

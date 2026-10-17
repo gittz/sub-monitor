@@ -76,6 +76,8 @@
     "每周": "Weekly", "每月": "Monthly", "每季度": "Quarterly", "每年": "Yearly",
     "账号": "Account",
     "中": "中",
+    "观看记录 ↗": "History ↗",
+    "去观看记录里看看": "Check the watch history",
     "去登录": "Sign in",
     "这个浏览器没登录，或登录已过期，所以读不到你账号的观看记录（没登录时看到的只是这台电脑上的游客记录，不作数）。": "This browser isn't signed in (or the session expired), so we can't read your account's watch history (anything shown while signed out is only this computer's guest history and doesn't count).",
     "，恢复前不会给出退订建议。登录后点「检查」即可恢复。": ", and there won't be any cancel suggestions until it's fixed. Sign in, then click \"Check\".",
@@ -388,6 +390,7 @@
   };
 
   const P = [
+    [/^在新标签页打开 (.+) 的观看记录$/, (m, n) => `Open ${tr(n)} watch history in a new tab`],
     // 日期 / 时间
     [/^(\d+) 天前$/, (m, n) => plural(n, "day ago", "days ago")],
     [/^(\d+) 天前（(.+)）$/, (m, n, d) => `${plural(n, "day ago", "days ago")} (${d})`],

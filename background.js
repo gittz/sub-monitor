@@ -231,14 +231,6 @@ const CATALOG = {
     verified: true,
     note: "读取腾讯视频「看过」里的观看记录（网页、手机、电视上用同一账号看的都算），直接用接口返回的观看时间。需在本浏览器登录腾讯视频。"
   },
-  youku: {
-    name: "优酷",
-    domain: "youku.com",
-    activityUrl: "https://www.youku.com/ku/usc/index",
-    strategy: "youku",
-    verified: false,
-    note: "读取优酷个人中心里的观看记录（网页、手机、电视上用同一账号看的都算）。需在本浏览器登录优酷。"
-  },
   bilibili: {
     name: "B站",
     domain: "bilibili.com",
@@ -324,7 +316,7 @@ async function genericExtract(cfg) {
 
 // YouTube 专用：数据在页面的 ytInitialData 变量里，不是 DOM 链接
 function youtubeExtract() {
-      const ids = [];
+      const ids = [], titles = [];   // titles：最前面几个视频的标题（和 ids 一一对应）
       let topLabel = "";
       let loggedOut = null;   // true=确认未登录, false=确认已登录, null=判断不出来
       let historyOff = false;
@@ -363,11 +355,17 @@ function youtubeExtract() {
             }
             if (n.videoRenderer && n.videoRenderer.videoId && ids.length < 10) {
               ids.push(n.videoRenderer.videoId);
+              if (titles.length < 3) titles.push(txt(n.videoRenderer.title));
             }
             // 新版观看记录页用 lockupViewModel 渲染视频
             if (n.lockupViewModel && n.lockupViewModel.contentId && ids.length < 10 &&
                 (!n.lockupViewModel.contentType || /VIDEO/.test(n.lockupViewModel.contentType)) && ids.indexOf(n.lockupViewModel.contentId) < 0) {
               ids.push(n.lockupViewModel.contentId);
+              if (titles.length < 3) {
+                let t = "";
+                try { t = n.lockupViewModel.metadata.lockupMetadataViewModel.title.content || ""; } catch (e) {}
+                titles.push(t);
+              }
             }
             for (const k in n) walk(n[k]);
           }
@@ -376,7 +374,10 @@ function youtubeExtract() {
       if (!ids.length) { // DOM 兜底
         document.querySelectorAll("ytd-video-renderer a#video-title, ytd-browse a[href*='/watch?v=']").forEach(a => {
           const m = (a.href || "").match(/[?&]v=([^&]+)/);
-          if (m && ids.length < 10) ids.push(m[1]);
+          if (m && ids.length < 10 && ids.indexOf(m[1]) < 0) {
+            ids.push(m[1]);
+            if (titles.length < 3) titles.push(((a.getAttribute && a.getAttribute("title")) || a.textContent || "").trim());
+          }
         });
       }
 
@@ -390,7 +391,8 @@ function youtubeExtract() {
         } catch (e) { /* 忽略 */ }
       }
 
-      return { ids, topLabel, loggedOut, historyOff };
+      // 观看记录页只按天分组（今天 / 昨天 / 星期一…），没有具体到几点；片名取第一组的第一个视频
+      return { ids, topLabel, loggedOut, historyOff, sampleTitles: titles[0] ? titles.filter(Boolean) : [] };
 }
 
 // 把目录项和用户在订阅里填的覆盖值合成一份最终配置
@@ -431,7 +433,6 @@ function waitForComplete(tabId) {
 async function readActivity(cfg) {
   if (!cfg || !cfg.activityUrl) return null;
   if (cfg.strategy === "tencent") return readTencentHistory(cfg);
-  if (cfg.strategy === "youku") return readHookedHistory(cfg, { id: "idlesubs-hist-hook", file: "hist-hook.js", matches: ["https://*.youku.com/*"], func: youkuExtract });
   const tab = await openBgTab(cfg.activityUrl, false);
   try {
     await waitForComplete(tab.id);
@@ -491,139 +492,6 @@ async function applyActivityGated(sub, r) {
   }
   sub.loginState = st === "ok" ? "ok" : (r && r.ids && r.ids.length ? "unconfirmed" : null);
   return applyActivityResult(sub, r);
-}
-
-// 通用版：读取期间临时注册接口监听脚本，打开观看记录页，在页面里运行提取函数，读完注销
-async function readHookedHistory(cfg, h) {
-  let registered = false, tab = null;
-  try {
-    try { await chrome.scripting.unregisterContentScripts({ ids: [h.id] }); } catch (e) {}
-    await chrome.scripting.registerContentScripts([{ id: h.id, js: [h.file], matches: h.matches, runAt: "document_start", world: "MAIN", persistAcrossSessions: false }]);
-    registered = true;
-    tab = await openBgTab(cfg.activityUrl, false);
-    await waitForComplete(tab.id);
-    const res = await chrome.scripting.executeScript({ target: { tabId: tab.id }, world: "MAIN", func: h.func });
-    return (res && res[0] && res[0].result) || null;
-  } catch (e) {
-    return null;
-  } finally {
-    if (tab) chrome.tabs.remove(tab.id).catch(() => {});
-    if (registered) chrome.scripting.unregisterContentScripts({ ids: [h.id] }).catch(() => {});
-  }
-}
-
-// 优酷观看记录页里运行：不依赖具体接口名，从页面收到的 JSON 里找「带观看时间和片名的列表」；
-// 找不到就退回读页面上的视频链接和日期标题。
-async function youkuExtract() {
-  const now = Date.now(), lo = now - 3 * 365 * 86400000, hi = now + 86400000;
-  const tsVal = (v) => {
-    let n = NaN;
-    if (typeof v === "number") n = v;
-    else if (typeof v === "string") {
-      if (/^\d{10}(\d{3})?$/.test(v)) n = Number(v);
-      else if (/^\d{4}[-/]\d{1,2}[-/]\d{1,2}[ T]\d{1,2}:\d{2}/.test(v)) n = Date.parse(v.replace(/\//g, "-").replace(" ", "T"));
-    }
-    if (!isFinite(n)) return 0;
-    if (n < 1e11) n *= 1000;
-    return n >= lo && n <= hi ? n : 0;
-  };
-  // 观看时间优先认 play / watch / view 之类的字段；更新、上线、发布时间这些不是观看时间，排除
-  const NOT_WATCH = /update|publish|release|online|create|expire|begin|start|end|modify|upload/i;
-  const WATCH_KEY = /play|watch|view|record|his|last/i, TS_KEY = /time|date|stamp|^ts$|gmt/i, TITLE_KEY = /title|name/i, ID_KEY = /^(vid|videoid|video_id|encodevid|encode_vid|showid|show_id|id)$/i;
-  function info(o) {
-    let ts = 0, tsOther = 0, title = "", titleT = "", id = "";
-    const scan = (x, depth) => {
-      if (!x || typeof x !== "object" || depth > 1) return;
-      for (const k of Object.keys(x)) {
-        const v = x[k];
-        if (v && typeof v === "object" && !Array.isArray(v)) { scan(v, depth + 1); continue; }
-        if (!NOT_WATCH.test(k) && (WATCH_KEY.test(k) || TS_KEY.test(k))) {
-          const t = tsVal(v);
-          if (WATCH_KEY.test(k)) { if (t > ts) ts = t; } else if (t > tsOther) tsOther = t;
-        }
-        // 片名优先用 title 字段（带集数），没有再用 name（showName 之类只有剧名）
-        if (TITLE_KEY.test(k) && typeof v === "string" && v.trim() && v.length <= 120 && !/^https?:/.test(v)) {
-          if (/title/i.test(k) ? !titleT : !title) { if (/title/i.test(k)) titleT = v.trim(); else title = v.trim(); }
-        }
-        if (!id && ID_KEY.test(k) && (typeof v === "string" || typeof v === "number") && String(v)) id = String(v);
-      }
-    };
-    scan(o, 0);
-    title = titleT || title;
-    return { ts: ts || tsOther, title, id: id || title };
-  }
-  function best(json) {
-    let top = null;
-    const walk = (x, depth) => {
-      if (!x || typeof x !== "object" || depth > 8) return;
-      if (Array.isArray(x)) {
-        const objs = x.filter(o => o && typeof o === "object" && !Array.isArray(o));
-        if (objs.length) {
-          const items = objs.map(info).filter(i => i.ts && i.title);
-          if (items.length && (!top || items.length > top.length)) top = items;
-        }
-        x.forEach(v => walk(v, depth + 1));
-      } else Object.keys(x).forEach(k => walk(x[k], depth + 1));
-    };
-    walk(json, 0);
-    return top;
-  }
-  let found = null, foundPath = "", stableSince = 0;
-  const t0 = Date.now();
-  while (Date.now() - t0 < 12000) {
-    const H = window.__idlesubsHist;
-    if (H) {
-      let cur = null, curPath = "";
-      for (const b of H.bodies) { const r = best(b.json); if (r && (!cur || r.length > cur.length)) { cur = r; curPath = b.path; } }
-      if (cur && (!found || cur.length !== found.length)) { found = cur; foundPath = curPath; stableSince = Date.now(); }
-      if (found && Date.now() - stableSince > 1500) break;
-    }
-    await new Promise(r => setTimeout(r, 400));
-  }
-  const H = window.__idlesubsHist || { calls: [] };
-  const calls = H.calls.slice(0, 12).map(c => ({ appid: c.path, ret: "", n: c.size }));
-  // 接口里没有：观看记录可能直接写在页面 HTML 里（服务端渲染），看看页面带的初始数据
-  if (!found) {
-    const cands = [];
-    try {
-      for (const k of Object.keys(window)) {
-        if (!/^__|INITIAL|STATE|DATA|PAGE|SSR/i.test(k) || /^__idlesubs/.test(k)) continue;
-        const v = window[k];
-        if (v && typeof v === "object" && !(v instanceof Node) && v !== window) cands.push({ path: "window." + k, json: v });
-      }
-    } catch (e) {}
-    document.querySelectorAll("script:not([src])").forEach((sc, i) => {
-      const t = sc.textContent || "";
-      if (t.length < 50 || t.length > 3000000) return;
-      const a = t.indexOf("{"), b = t.lastIndexOf("}");
-      if (a < 0 || b <= a) return;
-      try { cands.push({ path: "script#" + i, json: JSON.parse(t.slice(a, b + 1)) }); } catch (e) {}
-    });
-    for (const c of cands) { let r = null; try { r = best(c.json); } catch (e) {} if (r && (!found || r.length > found.length)) { found = r; foundPath = c.path; } }
-  }
-  if (found && found.length) {
-    found.sort((a, b) => b.ts - a.ts);
-    return { ids: found.map(x => x.id + "@" + Math.floor(x.ts / 60000)), lastTs: found[0].ts, count: found.length,
-             sample: found.slice(0, 3).map(x => x.title), calls, source: foundPath, strategy: "youku" };
-  }
-  // 退回：页面上的观看记录卡片（片名链接）+ 第一组日期标题（今天 / 昨天 / 更早…）
-  const text = (document.body && document.body.innerText) || "";
-  const ids = [], titles = [], seen = new Set();
-  const VID_HREF = /v_show\/id_([A-Za-z0-9=_-]+)|[?&](?:vid|showid|id)=([A-Za-z0-9=_-]+)|\/(?:video|show|alipay_video)\/(?:id_)?([A-Za-z0-9=_-]+)/;
-  const hrefs = [];
-  document.querySelectorAll("a[href]").forEach(a => {
-    const href = a.getAttribute("href") || "", txt = (a.textContent || "").trim();
-    const m = href.match(VID_HREF);
-    // 卡片的片名链接：「异人之下 第01集」这种；角标（独播 / 27集全）、会员入口之类的跳过
-    const looksTitle = txt.length >= 2 && txt.length <= 60 && !/^(独播|帧享|VIP|会员|\d+集全|\d+期全|更新至.*)$/.test(txt) && !/会员|升级|登录|续费|客户端/.test(txt);
-    if (!m && !looksTitle) return;
-    if (m && hrefs.length < 3) hrefs.push(href.slice(0, 120));
-    const id = m ? (m[1] || m[2] || m[3]) : null;
-    if (id && looksTitle && !seen.has(id)) { seen.add(id); ids.push(id); titles.push(txt); }
-  });
-  const lab = text.match(/(^|\n)\s*(今天|今日|昨天|前天|星期[一二三四五六日天]|周[一二三四五六日天]|\d{1,2}月\d{1,2}日|\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|一周内|近一周|7天内|七天内|更早)\s*(\n|$)/);
-  const loggedOut = /passport|login/i.test(location.href) || (!ids.length && /登录/.test(text) && !/观看记录|历史/.test(text));
-  return { ids, topLabel: lab ? lab[2] : "", sampleTitles: titles.slice(0, 3), hrefs, loggedOut: loggedOut || undefined, calls, strategy: "youku", pageUrl: location.href, fallback: true };
 }
 
 // 在观看记录页里运行：等接口结果，取出条目 ID 和最近一次观看时间
@@ -700,6 +568,7 @@ async function applyActivityResult(sub, r) {
   sub.signal = { ok: true, reason: null, since: null, lastOk: now, fails: 0 };
   sub.signalNotified = null;
 
+
   const sig = r.ids.slice(0, 5).join(",");
   // 观看记录第一组的日期标题（今天 / 昨天 / 星期一 / 10月12日…）= 最近一次观看的日子。读得出来就以它为准
   // 有接口直接给的观看时间（腾讯视频）就用它，否则按日期标题算
@@ -709,7 +578,8 @@ async function applyActivityResult(sub, r) {
     sub.lastWatched = watched;
     // 最近看的片名（接口给了才有）。只存在本机、不同步到云端；带上对应的观看时间，别的设备同步来更新的观看时间时就不再显示旧片名
     const ttl = (r.sample && r.sample[0]) || (r.sampleTitles && r.sampleTitles[0]);
-    if (ttl) sub.watchTitle = { title: String(ttl).slice(0, 80), at: watched };
+    // exact：有具体观看时间（腾讯视频接口）；否则只知道是哪一天（YouTube、优酷按天分组）
+    if (ttl) sub.watchTitle = { title: String(ttl).slice(0, 80), at: watched, exact: r.lastTs > 0 };
     sub.watchAt = now;          // 什么时候读的观看记录（多台设备同步时以读得晚的为准）
     sub.lastUsed = watched;
     sub.lastUsedFloor = false;
@@ -1519,13 +1389,25 @@ const needsModeUpgrade = (x) => {
   const cp = x && x.catalogId && SubCatalog.BY_ID[x.catalogId];
   return !!(cp && cp.activity && CATALOG[cp.activity] && x.mode !== "activity" && !x.provider);
 };
+// 反过来：读取方式已经撤掉的（比如优酷，观看记录页拿不到可靠的观看时间），改回按浏览器访问，
+// 清掉从观看记录读来的日期 / 片名 / 指纹，最近使用退回最近一次打开网站的时间
+const needsModeRevert = (x) => !!(x && x.mode === "activity" && x.provider && !CATALOG[x.provider]);
+function revertToBrowser(x, now) {
+  x.mode = "browser"; x.provider = null;
+  delete x.sig; delete x.signal; delete x.signalNotified;
+  x.watchTitle = null; x.lastWatched = 0; x.watchAt = now; x.loginState = null;   // watchAt=现在：同步时别的设备上的旧观看日期不会盖回来
+  const lastVisit = (x.visitLog || [])[(x.visitLog || []).length - 1];
+  if (lastVisit) { x.lastUsed = lastVisit; x.lastUsedFloor = false; }
+  x.updatedAt = now;
+}
 async function upgradeCatalogModes() {
   const cur = await getSubs();
-  if (!cur.some(needsModeUpgrade)) return;
+  if (!cur.some(x => needsModeUpgrade(x) || needsModeRevert(x))) return;
   await withLock(async () => {
-    const subs = await getSubs();
+    const subs = await getSubs(), now = Date.now();
     subs.forEach(x => {
-      if (needsModeUpgrade(x)) { x.mode = "activity"; x.provider = SubCatalog.BY_ID[x.catalogId].activity; x.updatedAt = Date.now(); }
+      if (needsModeRevert(x)) revertToBrowser(x, now);
+      else if (needsModeUpgrade(x)) { x.mode = "activity"; x.provider = SubCatalog.BY_ID[x.catalogId].activity; x.updatedAt = now; }
     });
     await setSubs(subs);
   });
@@ -1625,18 +1507,8 @@ chrome.runtime.onInstalled.addListener(async () => {
   // v2.16.3 起访问流水只存网站和时间：清掉以前存下的完整网址
   else if (cur.records.some(r => r && r.url)) await chrome.storage.local.set({ records: cur.records.map(r => ({ hostname: r.hostname, time: r.time })) });
   await upgradeCatalogModes();
-  // v2.21.1 腾讯视频的观看记录读不到，退回「账户页 + 浏览器访问」：读取方式已不存在的订阅改回浏览器访问
-  if (cur.subs && cur.subs.some(x => x.mode === "activity" && x.provider && !CATALOG[x.provider])) {
-    await withLock(async () => {
-      const subs = await getSubs();
-      subs.forEach(x => {
-        if (x.mode === "activity" && x.provider && !CATALOG[x.provider]) {
-          x.mode = "browser"; x.provider = null; delete x.sig; delete x.signal; delete x.signalNotified; x.updatedAt = Date.now();
-        }
-      });
-      await setSubs(subs);
-    });
-  }
+  // 读取方式已撤掉的订阅改回浏览器访问：upgradeCatalogModes 里一并处理
+
   // v2.15 去掉了「主要在电视 / 手机上用，不参与判断」：老数据恢复成正常判断
   if (cur.subs && cur.subs.some(x => x.mode === "none")) {
     await withLock(async () => {
@@ -1712,7 +1584,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             googleLogin: !!AuthLib.GOOGLE_CLIENT_ID,
             sync: await (async () => { const s = await getSyncState(); return { enabled: !!s.enabled, lastSyncAt: s.lastSyncAt || null, lastError: s.lastError || null }; })(),
             providers: Object.keys(CATALOG).map(k => ({
-              key: k, name: CATALOG[k].name, url: CATALOG[k].activityUrl,
+              key: k, name: CATALOG[k].name, url: CATALOG[k].activityUrl, strategy: CATALOG[k].strategy,
               verified: !!CATALOG[k].verified, note: CATALOG[k].note || ""
             })),
             noActivityPage: NO_ACTIVITY_PAGE });

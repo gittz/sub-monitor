@@ -345,51 +345,30 @@ const wait = (ms) => new Promise(r => realTimeout(r, ms));
     t("账户页读到套餐：登录了，正常用观看记录", Bo.store.subs[0].signal.ok && Bo.store.subs[0].loginState === "ok");
   }
 
-  // 优酷：从页面收到的 JSON 里找带观看时间和片名的列表
+  // 优酷：观看记录页拿不到可靠的观看时间，按浏览器访问判断；以前按观看记录添加的改回来
   {
-    const watchedAt = Date.now() - 2 * DAY;
-    const o8 = { tx: null };
-    const B8 = boot(pages, o8);
-    const ex = B8.ctx.youkuExtract;
-    const sec = Math.floor(watchedAt / 1000);
-    const body = { api: "mtop.youku.ucenter.history", data: { model: { list: [
-      { videoId: "XNa", title: "庆余年 第二季 第5集", lastPlayTime: sec - 3600, extra: { showName: "庆余年" } },
-      { videoId: "XNb", title: "繁花 第1集", lastPlayTime: String(sec), showUpdateTime: Date.now() - 1000 },
-      { videoId: "XNc", title: "", lastPlayTime: sec } ] }, banner: [{ name: "广告", img: "x" }] } };
-    const win = { __idlesubsHist: { calls: [{ path: "acs.youku.com/h5/mtop.youku.ucenter.history/1.0/", size: 500 }], bodies: [{ path: "acs.youku.com/h5/x", json: body }] } };
-    win.window = win;
-    const ctx8 = Object.assign(win, { Date, Number, String, Math, Promise, Array, Object, JSON, RegExp, isFinite, setTimeout,
-      document: { body: { innerText: "" }, querySelectorAll: () => [] }, location: { href: "https://www.youku.com/ku/usc/index" } });
-    const yr = await vm.runInNewContext("(" + ex.toString() + ")", ctx8)();
-    t("优酷：找到观看记录列表，最近一次 = 最新的观看时间，带片名", yr.count === 2 && Math.abs(yr.lastTs - sec * 1000) < 1 && yr.sample[0] === "繁花 第1集" && yr.ids[0].indexOf("XNb@") === 0, yr);
-    // 接口里没有、观看记录写在页面里的情况
-    const mkDoc = (scripts, anchors, text) => ({ body: { innerText: text }, querySelectorAll: (q) => q.indexOf("script") === 0 ? scripts : q === "a[href]" ? anchors : [] });
-    const A = (href, txt) => ({ getAttribute: () => href, textContent: txt });
-    const base8 = { Date, Number, String, Math, Promise, Array, Object, JSON, RegExp, isFinite, setTimeout, Node: function () {}, location: { href: "https://www.youku.com/ku/usc/index" } };
-    const w9 = { __idlesubsHist: { calls: [], bodies: [] } }; w9.window = w9;
-    const ssr = 'window.__INITIAL_DATA__ = {"history":{"list":[{"showName":"九门","title":"九门 第30集","vid":"XNx","lastPlayTime":' + (sec - 7200) + '}]}};';
-    const yr2 = await vm.runInNewContext("(" + ex.toString() + ")", Object.assign(w9, base8, { document: mkDoc([{ textContent: ssr }], [], "") }))();
-    t("优酷：页面自带的初始数据里也能找到观看记录", yr2.count === 1 && yr2.sample[0] === "九门 第30集" && /script/.test(yr2.source), yr2);
-    const w10 = { __idlesubsHist: { calls: [], bodies: [] } }; w10.window = w10;
-    const anchors = [A("//www.youku.com/ku/webvip", "续费会员"), A("//v.youku.com/v_show/id_XNaaa.html", "独播"), A("//v.youku.com/v_show/id_XNaaa.html", "异人之下 第01集"),
-                     A("//v.youku.com/v_show/id_XNbbb.html", "何以中国 第01集")];
-    const yr3 = await vm.runInNewContext("(" + ex.toString() + ")", Object.assign(w10, base8, { document: mkDoc([], anchors, "历史播放\n更早\n过滤短视频\n异人之下 第01集") }))();
-    t("优酷：退回读页面卡片：条目 ID、片名、日期分组", yr3.ids.join() === "XNaaa,XNbbb" && yr3.sampleTitles[0] === "异人之下 第01集" && yr3.topLabel === "更早", yr3);
-    // 监听脚本：JSONP 包装也能解析
-    const win2 = { fetch: () => Promise.resolve({ headers: { get: () => "application/javascript" }, clone: () => ({ text: () => Promise.resolve('mtopjsonp3({"ret":["SUCCESS"],"data":{"a":1}})') }) }) };
-    win2.window = win2;
-    function XHR() {} XHR.prototype.open = function () {}; XHR.prototype.send = function () {}; XHR.prototype.addEventListener = function () {};
-    vm.runInNewContext(fs.readFileSync(path.join(__dirname, "hist-hook.js"), "utf8"), Object.assign(win2, { XMLHttpRequest: XHR, JSON, String, URL, location: { href: "https://www.youku.com/ku/usc/index" } }));
-    await win2.fetch("https://acs.youku.com/h5/mtop.youku.x/1.0/?jsonp=mtopjsonp3");
-    await wait(10);
-    t("通用监听：JSONP 包装的结果也能留下", win2.__idlesubsHist.bodies.length === 1 && win2.__idlesubsHist.bodies[0].json.data.a === 1 && win2.__idlesubsHist.calls[0].path === "acs.youku.com/h5/mtop.youku.x/1.0/");
-    // 添加优酷：读观看记录
-    const o9 = {};
-    const B9 = boot(pages, o9);
-    vm.runInContext("youkuExtract.__isYouku = 1", B9.ctx);
+    const B8 = boot(pages, {});
+    // YouTube：观看记录页按天分组，取第一组第一个视频的标题
+    {
+      const yt = { ytInitialData: { contents: { x: [{ itemSectionRenderer: { header: { itemSectionHeaderRenderer: { title: { simpleText: "今天" } } }, contents: [
+        { lockupViewModel: { contentId: "abc", contentType: "LOCKUP_CONTENT_TYPE_VIDEO", metadata: { lockupMetadataViewModel: { title: { content: "如何做手冲咖啡" } } } } },
+        { videoRenderer: { videoId: "def", title: { runs: [{ text: "第二个" }] } } }] } }] } }, ytcfg: { get: () => true } };
+      yt.window = yt;
+      const r = vm.runInNewContext("(" + B8.ctx.youtubeExtract.toString() + ")()", Object.assign(yt, { JSON, Array, document: { querySelectorAll: () => [] } }));
+      t("YouTube：读到第一组日期和最近看的视频标题", r.ids.join() === "abc,def" && r.topLabel === "今天" && r.sampleTitles[0] === "如何做手冲咖啡" && r.loggedOut === false, r);
+    }
+    const visit = Date.now() - 3600000, wrong = Date.now() - 62 * DAY;
+    const Br = boot(pages, {});
+    Br.store.subs = [{ id: "y1", name: "优酷", catalogId: "youku", mode: "activity", provider: "youku", urlPattern: "youku.com", idleDays: 30,
+      lastUsed: wrong, lastWatched: wrong, watchAt: wrong, watchTitle: { title: "九门 30", at: wrong }, sig: "old", signal: { ok: true }, visitLog: [visit] }];
+    await Br.send({ type: "RUN_CHECK", ids: ["y1"] });
+    await wait(30);
+    const y1 = Br.store.subs[0];
+    t("优酷：改回按浏览器访问，清掉观看记录读来的日期和片名，最近使用 = 最近一次打开网站", y1.mode === "browser" && !y1.provider && !y1.lastWatched && !y1.watchTitle && !y1.sig && y1.lastUsed === visit, y1);
+    const B9 = boot(pages, {});
     const r9 = await B9.send({ type: "CATALOG_ADD", id: "youku" });
     await wait(40);
-    t("添加优酷：按观看记录判断，读取时挂上通用监听并在读完后注销", r9.ok && B9.store.subs[0].mode === "activity" && B9.store.subs[0].provider === "youku" && !(o9.reg || []).length);
+    t("添加优酷：按浏览器访问", r9.ok && B9.store.subs[0].mode === "browser" && !B9.store.subs[0].provider);
   }
 
   // 百度网盘：页面文字里没有空间时，用网盘自己的用量接口

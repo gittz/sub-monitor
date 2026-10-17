@@ -398,10 +398,21 @@ function usageCells(s, vs, isLlm) {
     <div><span>近 7 天访问</span><b>${vs.d7} 次</b></div><div><span>近 30 天访问</span><b>${vs.d30} 次</b></div>`;
 }
 // 观看记录里最近看的片名（只有能读到片名的服务才有，比如腾讯视频）
+// 观看记录类订阅（视频）：「最近看的」一行 + 右侧跳到该服务观看记录页的链接。
+// 读得到片名就显示片名；读不到具体日期（比如优酷第一组是「更早」）时也保留这一行，方便用户自己去看
+function histUrlOf(s) {
+  if (s.mode !== "activity" || !s.provider) return "";
+  const p = (state.providers || []).find(x => x.key === s.provider);
+  if (!p || p.strategy === "llm") return "";
+  return s.activityUrl || p.url || "";
+}
 function watchTitleHtml(s) {
-  const w = s.watchTitle;
-  if (!w || !w.title || !s.lastWatched || w.at !== s.lastWatched) return "";
-  return `<div class="sv-watched" title="来自观看记录（电视、手机上用同一账号看的也算）"><span>最近看的</span><b>${esc(w.title)}</b><small>${esc(fmtCheck(w.at))}</small></div>`;
+  const w = s.watchTitle, url = histUrlOf(s);
+  const ok = w && w.title && s.lastWatched && w.at === s.lastWatched;
+  if (!ok && !url) return "";
+  const link = url ? `<a href="#" class="sv-histlink" data-hist="${esc(s.id)}" title="在新标签页打开 ${esc(s.name)} 的观看记录">观看记录 ↗</a>` : "";
+  if (!ok) return `<div class="sv-watched"><span>最近看的</span><b class="muted">去观看记录里看看</b>${link}</div>`;
+  return `<div class="sv-watched" title="来自观看记录（电视、手机上用同一账号看的也算）"><span>最近看的</span><b>${esc(w.title)}</b><small>${esc(w.exact ? fmtCheck(w.at) : fmtShort(w.at))}</small>${link}</div>`;
 }
 // 卡片里的短日期：今天 / 昨天 / N 天前
 function fmtShort(ts) {
@@ -1217,6 +1228,12 @@ $("subList").addEventListener("click", async (e) => {
     try { d = await send({ type: "CATALOG_DIAGNOSE", id: p.id }); } finally { cdiagBusy.delete(s0.id); }
     cdiagOut[s0.id] = diagText(d);
     renderSubs();
+    return;
+  }
+  if (ds.hist) {
+    e.preventDefault();
+    const sh = state.subs.find(x => x.id === ds.hist), u = sh && histUrlOf(sh);
+    if (u) send({ type: "OPEN_TAB", url: u });
     return;
   }
   if (fix) {
