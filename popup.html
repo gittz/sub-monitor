@@ -608,6 +608,7 @@
   .ad-money { display:flex; gap:6px; }
   .ad-money select { flex:none; width:96px; padding:0 6px; border:1px solid var(--ad-border); border-radius:8px; background:var(--bg); color:var(--fg); font-size:13px; }
   .ad-money input { flex:1; min-width:0; }
+  .sv-metrics small { display:block; margin-top:1px; font-size:10.5px; color:var(--muted); font-weight:400; }
 </style>
 </head>
 <body>
@@ -644,7 +645,7 @@
     <div class="limitbar sv-callout" id="limitBar" hidden></div>
     <div class="histbar sv-callout" id="syncBar" hidden></div>
     <div class="sv-table">
-      <div class="sv-thead"><span class="sv-th-prod">订阅产品<button type="button" class="sv-sortbtn" id="sortToggle" title="调整订阅的显示顺序"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 16 4 4 4-4M7 20V4M21 8l-4-4-4 4M17 4v16"/></svg><span>排序</span></button></span><span class="sv-th-fee">费用 / 月</span><span>最近使用</span><span>使用状态</span></div>
+      <div class="sv-thead"><span class="sv-th-prod">订阅产品<button type="button" class="sv-sortbtn" id="sortToggle" title="调整订阅的显示顺序"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 16 4 4 4-4M7 20V4M21 8l-4-4-4 4M17 4v16"/></svg><span>排序</span></button></span><span class="sv-th-fee">费用 / 月</span><span title="判断闲不闲置的依据：视频看观看记录、大模型看对话记录、其它看在本浏览器打开网站的时间">最近使用</span><span>使用状态</span></div>
       <div class="sv-sortbar" id="sortBar" hidden><span>按住左边的 <b>⋮⋮</b> 拖动，或用右边的箭头调整顺序</span><button type="button" class="sv-sortreset" id="sortReset" hidden title="不再用你排的顺序，改回按使用状态自动排（闲置的在前）">恢复自动排序</button><button type="button" class="sv-sortdone" id="sortDone">完成</button></div>
       <div class="sv-filter" id="svFilter" hidden>只看值得再看一眼的订阅 · <a href="#" id="svFilterClear">显示全部</a></div>
       <div id="subList"></div>

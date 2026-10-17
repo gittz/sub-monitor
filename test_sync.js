@@ -103,5 +103,16 @@ t("改了价格要上传", !S.sameSynced({ subs: [edited], deleted: {} }, { subs
   t("浏览器访问型的最近使用正好是检查那会儿：改回剩下的最近一次", subs[2].lastUsed === T - 9 * DAY);
   t("检查记录变了要上传", !S.sameSynced({ subs: [], deleted: {}, own: [{ host: "a.com", time: NOW }] }, { subs: [], deleted: {} }));
 }
+// 观看记录读出的最近观看：以读得晚的为准，不按「最近使用取较晚」合并
+{
+  const W = NOW - 5 * DAY;
+  const loc = { id: "y1", name: "YouTube", catalogId: "youtube", updatedAt: 1, lastUsed: W, lastWatched: W, watchAt: NOW - 3600e3 };
+  const cloud = { id: "y1", name: "YouTube", catalogId: "youtube", updatedAt: 1, lastUsed: NOW - 600e3 };   // 以前误记的「今天」
+  let m = S.merge({ subs: [loc], deleted: {} }, { subs: [cloud], deleted: {} }, NOW);
+  t("云端旧的「今天」不会盖住观看记录读出的 5 天前", m.subs[0].lastUsed === W && m.subs[0].lastWatched === W, m.subs[0]);
+  const other = Object.assign({}, cloud, { lastWatched: NOW - DAY, lastUsed: NOW - DAY, watchAt: NOW - 60e3 });
+  m = S.merge({ subs: [loc], deleted: {} }, { subs: [other], deleted: {} }, NOW);
+  t("另一台设备读得更晚（昨天看过）：用它的", m.subs[0].lastUsed === NOW - DAY && m.subs[0].watchAt === NOW - 60e3);
+}
 console.log(`\n结果：${pass} 通过 / ${fail} 失败`);
 if (fail) process.exitCode = 1;

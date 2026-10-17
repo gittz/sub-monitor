@@ -35,6 +35,16 @@ function parseLabelToTs(label, now) {
   if (/^(今天|今日|today)$/i.test(s)) return today.getTime();
   if (/^(昨天|昨日|yesterday)$/i.test(s)) return today.getTime() - DAY;
   if (/^前天$/.test(s)) return today.getTime() - 2 * DAY;
+  // 星期几（YouTube 观看记录一周内的分组标题）：取最近过去的那一天；和今天同一个星期几就是 7 天前（今天的会写「今天」）
+  const WD = { "日": 0, "天": 0, "一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6,
+               sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 };
+  let w = s.match(/^(?:星期|周|禮拜|礼拜)([日天一二三四五六])$/);
+  let wd = w ? WD[w[1]] : WD[s.toLowerCase()];
+  if (wd !== undefined) {
+    let diff = (today.getDay() - wd + 7) % 7;
+    if (diff === 0) diff = 7;
+    return today.getTime() - diff * DAY;
+  }
   let n = s.match(/^(\d{1,2})\s*天前$/);
   if (n) return today.getTime() - parseInt(n[1], 10) * DAY;
   // 10-16 / 10/16（没写年份：按今年，晚于今天就算去年）

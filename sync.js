@@ -9,7 +9,7 @@
   // 允许上传的字段（白名单）。新增字段默认不上传，要上传得显式加在这里。
   const SYNC_FIELDS = ["id", "name", "urlPattern", "price", "currency", "priceSource", "priceEstimated", "idleDays",
     "mode", "provider", "activityUrl", "idPattern", "containerSelector", "catalogId",
-    "lastUsed", "lastUsedFloor", "createdAt", "updatedAt", "account", "llm"];
+    "lastUsed", "lastUsedFloor", "lastWatched", "watchAt", "createdAt", "updatedAt", "account", "llm"];
   // 账户页 / 大模型读取结果里也只留结论，不留页面地址之类
   const ACCOUNT_FIELDS = ["status", "plan", "price", "renewAt", "storage", "checkedAt", "updatedAt"];
   const LLM_FIELDS = ["kind", "plan", "origin", "willRenew", "stats", "convCount", "usage", "renewAt", "advice", "updatedAt"];
@@ -123,13 +123,20 @@
     // 两台设备各自加的同一个服务 id 不同：统一用较小的那个，几次同步后各设备的 id 就一致了，删除记录才能对上
     if (remote.id && String(remote.id) < String(local.id)) out.id = remote.id;
     for (const k of SYNC_FIELDS) {
-      if (k === "id" || k === "lastUsed" || k === "lastUsedFloor" || k === "account" || k === "llm") continue;
+      if (k === "id" || k === "lastUsed" || k === "lastUsedFloor" || k === "lastWatched" || k === "watchAt" || k === "account" || k === "llm") continue;
       if (newer[k] !== undefined) out[k] = newer[k]; else delete out[k];
     }
     // 最近使用：真实日期优先于「90 天没访问」占位
     const lu = (s) => (s.lastUsedFloor ? 0 : s.lastUsed || 0);
     if (lu(remote) > lu(local)) { out.lastUsed = remote.lastUsed; out.lastUsedFloor = false; }
     else if (!local.lastUsed && remote.lastUsed) { out.lastUsed = remote.lastUsed; out.lastUsedFloor = !!remote.lastUsedFloor; }
+    // 观看记录读出来的最近观看日：以「读得较晚」的那台设备为准（同一个账号的观看记录两边一样，读得晚的更新），
+    // 并且这时最近使用就等于最近观看 —— 不能再按「取较晚」合并，否则以前误记的「今天」会一直盖住真实日期
+    if (local.watchAt || remote.watchAt) {
+      const src = (remote.watchAt || 0) > (local.watchAt || 0) ? remote : local;
+      out.lastWatched = src.lastWatched; out.watchAt = src.watchAt;
+      if (src.lastWatched) { out.lastUsed = src.lastWatched; out.lastUsedFloor = false; }
+    }
     if (remote.account && ts(remote.account) > ts(local.account)) out.account = Object.assign({}, local.account, remote.account);
     if (remote.llm && ts(remote.llm) > ts(local.llm)) out.llm = Object.assign({}, local.llm, remote.llm);
     // 访问时间点：两台设备的访问合在一起

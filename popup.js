@@ -230,7 +230,6 @@ function renderSubs() {
     else if (s.lastUsedFloor) used = "90 天+未使用";
     else used = s.lastUsed ? fmtShort(s.lastUsed) : "—";
     const vs = visitStats(s.visitLog, now);
-    const modeTxt = isLlm ? "看对话记录" : s.mode === "activity" ? "看观看记录 + 浏览器访问" : s.catalogId ? "看账户页 + 浏览器访问" : s.mode === "browser" ? "未收录 · 看浏览器访问" : "电视 / 手机，不参与判断";
 
     let fix = "";
     if (st.state === "signal_lost") {
@@ -248,10 +247,7 @@ function renderSubs() {
       </div>
       <div class="sv-detail">
         <div class="sv-metrics">
-          <div><span>判断方式</span><b title="${esc(modeTxt)}">${esc(modeTxt.replace(/^看/, ""))}</b></div>
-          <div><span>最近访问</span><b>${esc(vs.last ? fmtShort(vs.last) : "无记录")}</b></div>
-          <div><span>近 7 天</span><b>${vs.d7} 次</b></div>
-          <div><span>近 30 天</span><b>${vs.d30} 次</b></div>
+          ${usageCells(s, vs, isLlm)}
         </div>
         ${s.llm && st.state !== "signal_lost" ? llmHtml(s) : ""}
         ${s.catalogId && SubCatalog.BY_ID[s.catalogId] && !SubCatalog.BY_ID[s.catalogId].special ? acctHtml(s, st) : ""}
@@ -365,6 +361,26 @@ $("subList").addEventListener("keydown", async (e) => {
   if (g) g.focus();
 });
 $("svFilterClear").addEventListener("click", (e) => { e.preventDefault(); svFilterIdle = false; renderSubs(); });
+// 详情里的四格，把两件事分开：
+//   最近使用 = 判断闲不闲置的依据（视频看观看记录、大模型看对话记录、其它看浏览器访问），列表里「最近使用」那一列就是它；
+//   最近访问 / 近 7 天 / 近 30 天 = 在这个浏览器里打开网站的时间和次数，只是参考，打开网站不一定等于在用。
+function usageBasis(s, isLlm) {
+  if (isLlm) return { text: "按对话记录", tip: "最近一次发起对话的时间（手机上的对话也算），只打开页面不算" };
+  if (s.mode === "activity") {
+    return s.sig && s.signal && s.signal.ok !== false
+      ? { text: "按观看记录", tip: "观看记录里最近一次观看的日期（电视、手机上用同一账号看的也算）" }
+      : { text: "按浏览器访问", tip: "观看记录暂时读不到，先按在本浏览器打开网站的时间判断" };
+  }
+  if (s.mode === "browser") return { text: "按浏览器访问", tip: "在本浏览器打开这个网站的时间" };
+  return { text: "不参与判断", tip: "" };
+}
+function usageCells(s, vs, isLlm) {
+  const b = usageBasis(s, isLlm);
+  const used = s.lastUsedFloor ? "90 天+" : s.lastUsed ? fmtShort(s.lastUsed) : "—";
+  return `<div title="${esc(b.tip)}"><span>最近使用</span><b>${esc(used)}</b><small>${esc(b.text)}</small></div>
+    <div title="在本浏览器里打开这个网站的最近一次时间（打开不一定等于在用）"><span>最近访问</span><b>${esc(vs.last ? fmtShort(vs.last) : "无记录")}</b><small>打开网站</small></div>
+    <div><span>近 7 天访问</span><b>${vs.d7} 次</b></div><div><span>近 30 天访问</span><b>${vs.d30} 次</b></div>`;
+}
 // 卡片里的短日期：今天 / 昨天 / N 天前
 function fmtShort(ts) {
   const days = Math.floor((Date.now() - ts) / 86400000);

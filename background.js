@@ -460,6 +460,17 @@ async function updateFromActivity(sub) {
   sub.signalNotified = null;
 
   const sig = r.ids.slice(0, 5).join(",");
+  // 观看记录第一组的日期标题（今天 / 昨天 / 星期一 / 10月12日…）= 最近一次观看的日子。读得出来就以它为准
+  const watched = parseLabelToTs(r.topLabel, now);
+  if (watched) {
+    if (watched > (sub.lastWatched || 0) || sig !== sub.sig) sub.notified = null;
+    sub.lastWatched = watched;
+    sub.watchAt = now;          // 什么时候读的观看记录（多台设备同步时以读得晚的为准）
+    sub.lastUsed = watched;
+    sub.lastUsedFloor = false;
+    sub.sig = sig;
+    return true;
+  }
 
   // 中断期间如果对方有了新记录，说明这段时间用户是在用的。
   // 我们不知道具体哪天用的，按"最近"算 —— 宁可漏提醒，也不要误报。
@@ -590,6 +601,12 @@ async function readLlm(kind) {
   const has = await chrome.permissions.contains({ origins: [LLM_ORIGINS[kind]] });
   if (!has) return { error: "no_permission" };
 
+  // 先在后台直接调它网页用的接口（带浏览器里的登录状态），不用开任何窗口；读不到再退回打开网页读
+  try {
+    const d = await LlmLib.llmReadPage({ kind, base: "https://" + site.domain });
+    if (d && d.ok) return d;
+  } catch (e) { /* 退回打开网页 */ }
+
   let tabId = null, created = false;
   try {
     const open = await chrome.tabs.query({ url: `https://${site.domain}/*` });
@@ -676,6 +693,14 @@ function applyCrossAdvice(subs) {
 
 // ---------- 常见服务：读「账户 / 会员页」上的套餐、价格、续费日、空间用量 ----------
 // 后台打开该服务的账户页，取页面文字交给 catalog.js 解析。只保存解析结果，不保存页面文字。
+// 在插件后台直接调用量接口（带浏览器里的登录状态），不打开网页
+async function readQuotaDirect(p) {
+  try {
+    const r = await fetch("https://" + p.domains[0] + p.quotaApi, { credentials: "include" });
+    const j = await r.json();
+    return j && j.total ? { used: j.used, total: j.total } : null;
+  } catch (e) { return null; }
+}
 async function readAccount(p) {
   let has = false;
   try { has = await chrome.permissions.contains({ origins: SubCatalog.originsOf(p) }); } catch (e) { has = false; }
@@ -1171,9 +1196,10 @@ function notifySignalLost(sub, reason, brokenDays) {
 }
 
 // 检查时读取活动记录 / 大模型数据会写回订阅的这些字段
-const REFRESH_FIELDS = ["lastChecked", "signal", "signalNotified", "sig", "lastUsed", "notified", "llm",
+const REFRESH_FIELDS = ["lastChecked", "signal", "signalNotified", "sig", "lastUsed", "lastUsedFloor", "lastWatched", "watchAt", "notified", "llm",
                         "account", "price", "currency", "priceSource", "priceEstimated"];
 const CHECK_CONCURRENCY = 4;          // 同时最多读几个（每个读取可能要在后台开一个标签页）
+const ACCOUNT_FRESH_MS = 3 * DAY;     // 全部检查时，多久内读过的账户页不再重新打开
 const inflight = new Map();           // 订阅 id → 正在进行的读取（同一个订阅不会被重复读）
 
 // 读取一个订阅的最新数据。在订阅的副本上读，不占存储锁：读取要几秒，期间访问记录等照常写入。
@@ -1183,7 +1209,18 @@ function refreshOne(sub, opts) {
     // 常见服务：先读账户页（套餐 / 价格 / 续费日 / 空间）
     const cp = sub.catalogId && SubCatalog.BY_ID[sub.catalogId];
     const jobs = [];
-    if (cp && !cp.special && cp.accountUrl && !(opts && opts.skipAccount)) jobs.push(readAccount(cp).then(r => applyAccount(sub, cp, r, Date.now())));
+    let light = false;
+    if (cp && !cp.special && cp.accountUrl && !(opts && opts.skipAccount)) {
+      // 全部检查（定时 / 立即检查）时，3 天内读到过套餐的就不再打开账户页（套餐很少变）；
+      // 有用量接口的（网盘空间）直接在后台调接口刷新，不开窗口。单独点某一行的「检查」仍然完整读一次。
+      const a0 = sub.account;
+      light = !!(opts && opts.light && a0 && a0.status === "ok" && Date.now() - (a0.checkedAt || 0) < ACCOUNT_FRESH_MS);
+      if (!light) jobs.push(readAccount(cp).then(r => applyAccount(sub, cp, r, Date.now())));
+      else if (cp.quotaApi) jobs.push(readQuotaDirect(cp).then(q => {
+        const st = q && SubCatalog.storageFromBytes(q.used, q.total);
+        if (st) sub.account = Object.assign({}, sub.account, { storage: st, updatedAt: Date.now() });
+      }));
+    }
     // 再读使用情况（活动记录 / 大模型对话时间）；浏览器访问型不需要读
     if (sub.mode === "activity" && sub.provider) {
       const cfg = getProviderConfig(sub);
@@ -1192,7 +1229,7 @@ function refreshOne(sub, opts) {
     }
     await Promise.all(jobs);
     // 只读账户页的（网盘、国内影音等）也要记「最近检查」
-    if (jobs.length) sub.lastChecked = Date.now();
+    if (jobs.length || light) sub.lastChecked = Date.now();
     return sub;
   })().finally(() => inflight.delete(sub.id));
   inflight.set(sub.id, p);
@@ -1205,6 +1242,8 @@ async function runCheck(ids, opts) {
   const only = Array.isArray(ids) && ids.length ? new Set(ids) : null;
   // 全部检查时顺便用浏览历史更新「浏览器访问」型订阅（授权过才会读）
   if (!only) { try { await historyScan(); } catch (e) {} }
+  // 全部检查默认用轻量模式（少开窗口）；单独检查某一个订阅时完整读取
+  if (!only) opts = Object.assign({ light: true }, opts);
   const snapshot = await getSubs();
   const needsRead = (s) => (s.mode === "activity" && s.provider) ||
     !!(s.catalogId && SubCatalog.BY_ID[s.catalogId] && !SubCatalog.BY_ID[s.catalogId].special);

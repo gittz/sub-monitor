@@ -33,7 +33,7 @@ function boot(pages, opts) {
         if (pg === "THROW") throw new Error("Cannot access contents of url");
         return [{ result: Object.assign({ url, title: "" }, pg || { text: "" }) }];
       }
-      return [{ result: { ids: ["v" + Math.random()], topLabel: "", loggedOut: false, historyOff: false } }];
+      return [{ result: { ids: ["v" + Math.random()], topLabel: opts.topLabel || "", loggedOut: false, historyOff: false } }];
     } },
     webNavigation: { onCompleted: ev("nav"), onHistoryStateUpdated: ev("b") },
     alarms: { onAlarm: ev("c"), create() {} }, runtime: { onInstalled: ev("d"), onStartup: ev("e"), onMessage: ev("msg") },
@@ -275,6 +275,33 @@ const wait = (ms) => new Promise(r => realTimeout(r, ms));
     B5.store.subs[0].account = { status: "ok", plan: { label: "超级会员", paid: true } };   // 旧数据：没有空间
     const d5 = await B5.send({ type: "CATALOG_DIAGNOSE", id: "baidu-pan" });
     t("诊断读成功：结果存进订阅，列表里能看到空间", d5.ok && B5.store.subs[0].account.storage && B5.store.subs[0].account.storage.pct === 52 && B5.store.subs[0].lastChecked);
+  }
+
+  // 全部检查（定时 / 立即检查）：3 天内读过套餐的不再打开账户页；单独检查仍然完整读
+  {
+    const B6 = boot(pages, {});
+    B6.store.subs = [{ id: "nf6", name: "Netflix", catalogId: "netflix", mode: "browser", urlPattern: "netflix.com",
+                       account: { status: "ok", plan: { label: "Premium", paid: true }, checkedAt: Date.now() - DAY } }];
+    await B6.send({ type: "RUN_CHECK" });
+    await wait(30);
+    t("全部检查：套餐 3 天内读过 → 不开账户页，但记下检查时间", B6.opened.filter(u => u === nf.accountUrl).length === 0 && Date.now() - (B6.store.subs[0].lastChecked || 0) < 5000, B6.opened);
+    await B6.send({ type: "RUN_CHECK", ids: ["nf6"] });
+    await wait(30);
+    t("单独检查这一个：完整读一次账户页", B6.opened.filter(u => u === nf.accountUrl).length === 1);
+    B6.store.subs[0].account.checkedAt = Date.now() - 5 * DAY;
+    await B6.send({ type: "RUN_CHECK" });
+    await wait(30);
+    t("全部检查：超过 3 天没读的照常打开账户页", B6.opened.filter(u => u === nf.accountUrl).length === 2);
+  }
+
+  // 观看记录第一组标题「星期一」→ 最近观看 = 上周一，最近使用跟着它（不是检查当天）
+  {
+    const B7 = boot(pages, { topLabel: "星期一" });
+    B7.store.subs = [{ id: "yt7", name: "YouTube Premium", catalogId: "youtube", mode: "activity", provider: "youtube", urlPattern: "youtube.com", sig: "old", signal: { ok: true }, lastUsed: Date.now() }];
+    await B7.send({ type: "RUN_CHECK", ids: ["yt7"] });
+    await wait(30);
+    const y7 = B7.store.subs[0], exp = B7.ctx.parseLabelToTs("星期一", Date.now());
+    t("YouTube：最近观看取观看记录的日期（星期一），最近使用也是它", y7.lastWatched === exp && y7.lastUsed === exp, y7);
   }
 
   // 8. B站活动记录 provider 存在

@@ -136,6 +136,16 @@ setTimeout(async () => {
     t("列表小字：Netflix 显示套餐和续费日", /^Standard · \d\d\/\d\d 续费$/.test(cap({ catalogId: "netflix", account: { status: "ok", plan: { label: "Standard" }, renewAt: Date.now() + 5 * DAY } })));
     t("列表小字：没登录读不到时退回分类", cap({ catalogId: "netflix", account: { status: "logged_out", plan: { label: "Standard" } } }) === "影音娱乐");
   }
+  {
+    const vs = { last: Date.now(), d7: 27, d30: 92 };
+    const W = Date.now() - 5 * DAY;
+    const h1 = w.usageCells({ mode: "activity", provider: "youtube", lastUsed: W, lastWatched: W, sig: "a", signal: { ok: true } }, vs, false);
+    t("视频类：「最近使用 5 天前 · 按观看记录」和「最近访问 今天 · 打开网站」分开显示", /最近使用<\/span><b>5 天前<\/b><small>按观看记录/.test(h1) && /最近访问<\/span><b>今天<\/b><small>打开网站/.test(h1) && /近 7 天访问/.test(h1));
+    const h2 = w.usageCells({ provider: "claude", llm: {}, lastUsed: Date.now() }, vs, true);
+    t("大模型：最近使用按对话记录", /按对话记录/.test(h2));
+    const h3 = w.usageCells({ mode: "browser", urlPattern: "x.com", lastUsed: Date.now() }, vs, false);
+    t("手动网址：最近使用按浏览器访问", /按浏览器访问/.test(h3));
+  }
   t("网盘：列表里直接显示空间用量", /空间 120 GB \/ 5 TB · 2%/.test(sub2));
   t("账户信息：套餐 + 空间 + 降档建议", /超级会员 SVIP/.test(sub2) && /120 GB/.test(sub2) && /换小一档/.test(sub2));
   t("未登录：提示不代表没在用，给「打开账户页」", /不代表你没在用/.test(sub2) && /data-copen="3"/.test(sub2));

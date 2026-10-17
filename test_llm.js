@@ -115,6 +115,12 @@ async function pageTests() {
   r = await P.llmReadPage({ kind: "claude" });
   check("被安全验证拦住（HTML）→ 读取失败，不当成未登录", r.loggedOut !== true && !r.ok && r.error === "read_failed");
 
+  // 插件后台直接请求（不开网页）：带网站地址前缀
+  const calls2 = [];
+  P = load(async (url) => { calls2.push(url); return res(401, {}); });
+  r = await P.llmReadPage({ kind: "claude", base: "https://claude.ai" });
+  check("后台直接请求：用完整地址 https://claude.ai/api/...，标记 via=direct", calls2[0] === "https://claude.ai/api/organizations" && r.via === "direct" && r.loggedOut === true);
+
   console.log("== llmReadPage：ChatGPT ==");
   let auth = [];
   P = load(async (url, init) => {
