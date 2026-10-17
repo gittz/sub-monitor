@@ -177,6 +177,9 @@ function subCaption(s) {
   const a = s.account;
   // 网盘：空间用量
   if (p && p.storage && a && a.storage) return `空间 ${a.storage.label} · ${a.storage.pct}%`;
+  // 有观看记录片名的（腾讯视频）：套餐 + 最近看的片名
+  const wt = s.watchTitle && s.watchTitle.title && s.lastWatched && s.watchTitle.at === s.lastWatched ? s.watchTitle.title : "";
+  if (wt) return (p && a && a.plan && (a.status === "ok" || !a.status) ? a.plan.label + " · " : "") + "最近看 " + wt;
   // 其它收录服务：套餐 + 续费日
   if (p && a && a.plan && (a.status === "ok" || !a.status)) return a.plan.label + (a.renewAt ? ` · ${md(a.renewAt)} 续费` : "");
   if (p) return SV_CAT[p.cat] || "";
@@ -210,7 +213,7 @@ function renderSubs() {
 
   // 信号中断时给出具体该怎么处理
   const FIX = {
-    logged_out: "这个浏览器没登录，或登录已过期，所以读不到活动记录。<b>这不代表你没在用</b>，恢复前不会给出退订建议。",
+    logged_out: "这个浏览器没登录，或登录已过期，所以读不到你账号的观看记录（没登录时看到的只是这台电脑上的游客记录，不作数）。<b>这不代表你没在用</b>，恢复前不会给出退订建议。登录后点「检查」即可恢复。",
     history_off: "该服务的历史记录处于关闭 / 暂停状态，无法据此判断使用情况。可以去打开历史记录，或把这条订阅改成其它判断方式。",
     read_failed: "读取活动记录失败（可能是网络问题或页面结构变化）。恢复前不会给出退订建议。",
     no_permission: "还没授权插件读取这个网站。点「去处理」授权后会立即重新读取。"
@@ -247,7 +250,7 @@ function renderSubs() {
     if (st.state === "signal_lost") {
       const since = st.days > 0 ? `已 ${st.days} 天读不到。` : "";
       fix = `<div class="fixit">${since}${FIX[st.reason] || FIX.read_failed}
-        <div><button data-fix="${esc(s.id)}">去处理</button></div></div>`;
+        <div><button data-fix="${esc(s.id)}">${st.reason === "logged_out" ? "去登录" : "去处理"}</button></div></div>`;
     }
     const busy = checking.has(s.id), open = openRows.has(s.id);
     return `<div class="sv-row st-${st.state}${open ? " open" : ""}" data-id="${esc(s.id)}">
@@ -261,6 +264,7 @@ function renderSubs() {
         <div class="sv-metrics">
           ${usageCells(s, vs, isLlm)}
         </div>
+        ${watchTitleHtml(s)}
         ${s.llm && st.state !== "signal_lost" ? llmHtml(s) : ""}
         ${s.catalogId && SubCatalog.BY_ID[s.catalogId] && !SubCatalog.BY_ID[s.catalogId].special ? acctHtml(s, st) : ""}
         ${fix}
@@ -393,6 +397,12 @@ function usageCells(s, vs, isLlm) {
     <div title="在本浏览器里打开这个网站的最近一次时间（打开不一定等于在用）"><span>最近访问</span><b>${esc(vs.last ? fmtShort(vs.last) : "无记录")}</b><small>打开网站</small></div>
     <div><span>近 7 天访问</span><b>${vs.d7} 次</b></div><div><span>近 30 天访问</span><b>${vs.d30} 次</b></div>`;
 }
+// 观看记录里最近看的片名（只有能读到片名的服务才有，比如腾讯视频）
+function watchTitleHtml(s) {
+  const w = s.watchTitle;
+  if (!w || !w.title || !s.lastWatched || w.at !== s.lastWatched) return "";
+  return `<div class="sv-watched" title="来自观看记录（电视、手机上用同一账号看的也算）"><span>最近看的</span><b>${esc(w.title)}</b><small>${esc(fmtCheck(w.at))}</small></div>`;
+}
 // 卡片里的短日期：今天 / 昨天 / N 天前
 function fmtShort(ts) {
   const days = Math.floor((Date.now() - ts) / 86400000);
@@ -422,7 +432,8 @@ function diagText(d) {
     a.storage ? `空间：${a.storage.label}（${a.storage.pct}%）` : d.quotaError ? `空间：没读到（用量接口：${d.quotaError}）` : "",
     d.injectError ? `注入失败：${d.injectError}` : "",
     d.activity ? (d.activity.error ? "观看记录：读取失败" : d.activity.loggedOut ? "观看记录：没登录"
-      : `观看记录：抓到 ${d.activity.count} 条${d.activity.topLabel ? `，第一组「${d.activity.topLabel}」` : ""}${d.activity.count ? "（" + d.activity.ids.join("、") + "）" : "，没认出条目"}`) : "",
+      : d.activity.guestOnly ? `观看记录：账户页显示没登录，读到的 ${d.activity.count} 条可能只是本机的游客记录，不采用`
+      : `观看记录：抓到 ${d.activity.count} 条${d.activity.lastTs ? `，最近一次观看 ${new Date(d.activity.lastTs).toLocaleString("zh-CN", { hour12: false })}${d.activity.sample && d.activity.sample[0] ? `（${d.activity.sample[0]}）` : ""}` : ""}${d.activity.topLabel ? `，第一组「${d.activity.topLabel}」` : ""}${d.activity.count ? "（" + d.activity.ids.join("、") + "）" : "，没认出条目"}${d.activity.calls ? "　接口调用：" + d.activity.calls.map(c => `${c.appid || "?"}/${c.ret}/${c.n}`).join(" ") : ""}${d.activity.fresh ? "　跳过缓存重取：" + (d.activity.fresh.error ? "失败 " + d.activity.fresh.error : `${d.activity.fresh.ret}/${d.activity.fresh.n}`) : ""}`) : "",
     `页面文字 ${d.textLength} 字，开头：`,
     d.excerpt || "（空）"
   ].filter(Boolean).join("\n"));
@@ -1215,10 +1226,12 @@ $("subList").addEventListener("click", async (e) => {
       if (ok) { await checkSubs([s0.id]); }
       return;
     }
-    // 打开该服务的活动页：登录后下一次检查就会自动恢复
+    // 没登录：打开该服务的会员 / 账户页（没登录会跳到登录页）；其它情况打开活动页。登录后下一次检查就会自动恢复
     const s = state.subs.find(x => x.id === fix);
+    const cp = s && s.catalogId && SubCatalog.BY_ID[s.catalogId];
     const p = s && state.providers.find(x => x.key === s.provider);
-    const url = p ? p.url : (s && s.urlPattern ? "https://" + normalizeDomain(s.urlPattern) : null);
+    const url = (cp && cp.accountUrl && s.signal && s.signal.reason === "logged_out") ? cp.accountUrl
+      : p ? p.url : (s && s.urlPattern ? "https://" + normalizeDomain(s.urlPattern) : null);
     if (url) send({ type: "OPEN_TAB", url });
   } else if (edit) {
     const s = state.subs.find(x => x.id === edit);

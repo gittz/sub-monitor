@@ -76,6 +76,11 @@
     "每周": "Weekly", "每月": "Monthly", "每季度": "Quarterly", "每年": "Yearly",
     "账号": "Account",
     "中": "中",
+    "去登录": "Sign in",
+    "这个浏览器没登录，或登录已过期，所以读不到你账号的观看记录（没登录时看到的只是这台电脑上的游客记录，不作数）。": "This browser isn't signed in (or the session expired), so we can't read your account's watch history (anything shown while signed out is only this computer's guest history and doesn't count).",
+    "，恢复前不会给出退订建议。登录后点「检查」即可恢复。": ", and there won't be any cancel suggestions until it's fixed. Sign in, then click \"Check\".",
+    "最近看的": "Last watched",
+    "来自观看记录（电视、手机上用同一账号看的也算）": "From watch history (includes TV and phone on the same account)",
     "点此打开账单页。": "Click to open the billing page.",
     "超级会员 SVIP": "SVIP",
     "今天": "Today",
@@ -412,6 +417,7 @@
     [/^已添加「(.+)」$/, "Added \"$1\""],
     [/^已保存「(.+)」$/, "Saved \"$1\""],
     [/^已 (\d+) 天读不到。$/, "Unreadable for $1 days. "],
+    [/^已 (\d+) 天读不到。(.+)$/, (m, n, r) => `Unreadable for ${n} days. ${tr(r)}`],
     [/^「(.+)」是收录的服务，网址固定，不能改。套餐和使用情况从官方页面读取，访问次数按这些域名统计。$/, "\"$1\" is a supported service, so the URL is fixed. Plan and usage are read from its official pages, and visits are counted for these domains."],
 
     // 列表小字
@@ -501,6 +507,7 @@
 
   // 拼出来的句子按片段换
   const PH = [
+    ["· 最近看 ", "· watched "], ["最近看 ", "Watched "],
     ["· 1 封", "· 1 email"], [" / 月", "/mo"], [" / 年", "/yr"], ["（≈ ", " (≈ "], ["）", ")"], ["（", " ("], ["经 ", "Billed via "], [" 扣费", ""], ["今天", "today"], ["昨天", "yesterday"],
     ["每季度", "Quarterly"], ["每月", "Monthly"], ["每周", "Weekly"], ["每年", "Yearly"], ["周期不规律", "Irregular cycle"], ["只见到 1 次", "Seen once"], [" 封", " emails"],
     ["套餐", "Plan"], ["/月", "/mo"], ["下次续费 ", "renews "], ["下次续费", "renews"], ["（年付折算）", " (billed yearly)"],

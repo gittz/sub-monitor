@@ -25,8 +25,12 @@ function boot(pages, opts) {
           (listeners.nav || []).forEach(f => f({ frameId: 0, tabId: id, url: o.url })); }, 1);
         return { id }; },
       remove: async (id) => { (listeners.tr || []).forEach(f => f(id)); }, onUpdated: ev("tu"), onRemoved: ev("tr") },
-    scripting: { executeScript: async (o) => {
+    scripting: {
+      registerContentScripts: async (a) => { (opts.reg = opts.reg || []).push(...a.map(x => x.id)); },
+      unregisterContentScripts: async (q) => { opts.reg = (opts.reg || []).filter(id => q.ids.indexOf(id) < 0); },
+      executeScript: async (o) => {
       const url = tabUrl[o.target.tabId];
+      if (o.func && o.func.name === "tencentExtract") { opts.txHookAtRead = (opts.reg || []).slice(); return [{ result: opts.tx || null }]; }
       if (o.args && typeof o.args[0] === "string" && o.args[0].indexOf("/api/quota") === 0) return [{ result: opts.quota || { errno: -6 } }];
       if (o.args && o.args[0] && "waitRe" in o.args[0]) {
         const pg = pages[url];
@@ -262,7 +266,117 @@ const wait = (ms) => new Promise(r => realTimeout(r, ms));
     await wait(20);
     const g = (id) => B4.store.subs.find(x => x.id === id);
     t("升级：有观看记录的服务改为读观看记录，没有的不变", g("b1").mode === "activity" && g("b1").provider === "bilibili" && g("n1").mode === "browser");
-    t("腾讯视频退回「账户页 + 浏览器访问」", g("t1").mode === "browser" && !g("t1").provider && !g("t1").sig);
+    t("腾讯视频保留读观看记录", g("t1").mode === "activity" && g("t1").provider === "tencent");
+  }
+
+  // 腾讯视频：用观看记录接口返回的观看时间（view_date_ms）作为最近使用
+  {
+    const watchedAt = Date.now() - 5 * DAY;
+    const o6 = { tx: { ids: ["v1@1", "v2@0"], lastTs: watchedAt, count: 2, sample: ["美人余 第13集"], strategy: "tencent" } };
+    const B6 = boot(pages, o6);
+    const r6 = await B6.send({ type: "CATALOG_ADD", id: "tencent-video" });
+    await wait(40);
+    const s6 = B6.store.subs[0];
+    t("腾讯视频：添加后读观看记录，最近使用 = 接口里最近一次观看时间", r6.ok && s6.mode === "activity" && s6.provider === "tencent" &&
+      Math.abs(s6.lastUsed - watchedAt) < 1000 && Math.abs(s6.lastWatched - watchedAt) < 1000, s6);
+    t("腾讯视频：记下最近看的片名（只存本机）", s6.watchTitle && s6.watchTitle.title === "美人余 第13集" && s6.watchTitle.at === s6.lastWatched &&
+      !("watchTitle" in B6.ctx.SyncLib.payload([s6], {}).subs[0]));
+    t("腾讯视频：读取时临时挂上接口监听，读完就注销", (o6.txHookAtRead || []).indexOf("idlesubs-tx-hook") >= 0 && !(o6.reg || []).length);
+    // 云端同步过来的旧数据（按浏览器访问）：检查前自动改成读观看记录
+    const o7 = { tx: { ids: ["v9@1"], lastTs: watchedAt, count: 1, strategy: "tencent" } };
+    const B7 = boot(pages, o7);
+    B7.store.subs = [{ id: "t7", name: "腾讯视频", catalogId: "tencent-video", mode: "browser", urlPattern: "v.qq.com", idleDays: 30, lastUsed: Date.now() }];
+    await B7.send({ type: "RUN_CHECK", ids: ["t7"] });
+    await wait(40);
+    const s7 = B7.store.subs[0];
+    t("旧的腾讯视频订阅：检查时改成读观看记录，最近使用按观看时间", s7.mode === "activity" && s7.provider === "tencent" && Math.abs(s7.lastUsed - watchedAt) < 1000, s7);
+    // 接口监听脚本：多次调用的结果都收集起来
+    {
+      const resp = (o) => Promise.resolve({ clone: () => ({ text: () => Promise.resolve(JSON.stringify(o)) }) });
+      const queue = [{ ret: 0, data: { msgs: [{ msg: { vid: "old", view_date_ms: "1000" } }] } }, { ret: 0, data: { msgs: [{ msg: { vid: "new", view_date_ms: "2000" } }] } }];
+      const win = { fetch: () => resp(queue.shift()) };
+      win.window = win;
+      function XHR() {} XHR.prototype.open = function () {}; XHR.prototype.send = function () {};
+      vm.runInNewContext(fs.readFileSync(path.join(__dirname, "tx-hook.js"), "utf8"), Object.assign(win, { XMLHttpRequest: XHR, JSON, String, Date }));
+      await win.fetch("https://pbaccess.video.qq.com/x/GetList?video_appid=1200022&a=1");
+      await win.fetch("https://pbaccess.video.qq.com/x/GetList?video_appid=1200001&a=1");
+      await wait(10);
+      const c = win.__idlesubsTx;
+      t("接口监听：几次调用的记录都收集到", c && c.msgs.length === 2 && c.calls.length === 2 && c.calls[1].appid === "1200001");
+    }
+    // 页面里的提取函数
+    const fake = { window: { __idlesubsTx: { ret: 0, req: { url: "https://pbaccess.video.qq.com/GetList?video_appid=1200022", method: "POST", body: "{}" }, msgs: [
+      { msg: { vid: "b", view_date: "1792100000" } }, { msg: {} }] } }, document: { body: { innerText: "看过" } }, location: { href: "x" }, setTimeout,
+      // 跳过缓存重取到的最新结果：片名在 poster 里（和 msg 同级）
+      fetch: async (u, o) => { fake.fetched = o; return { json: async () => ({ ret: 0, data: { msgs: [{ msg: { vid: "a", view_date_ms: "1792222531174" }, poster: { title: "美人余 第13集" } }] } }) }; } };
+    fake.window.window = fake.window;
+    const ex = vm.runInNewContext("(" + B6.ctx.tencentExtract.toString() + ")", Object.assign({}, fake, { window: fake.window, Date, Number, String, Math, Promise, Array }));
+    const er = await ex();
+    t("提取：按观看时间取最近一条，条目 ID 带时间做指纹", er.lastTs === 1792222531174 && er.count === 2 && er.ids[0].indexOf("a@") === 0 && er.sample[0] === "美人余 第13集" && fake.fetched.cache === "no-store" && fake.fetched.method === "POST" && er.fresh.n === 1);
+    const fake2 = { window: { __idlesubsTx: { ret: -1, msgs: null } }, document: { body: { innerText: "" } }, location: { href: "x" }, setTimeout, Date, Number, String, Math, Promise, Array };
+    const er2 = await vm.runInNewContext("(" + B6.ctx.tencentExtract.toString() + ")", fake2)();
+    t("提取：接口报错（没登录）→ 标记未登录", er2.loggedOut === true && !er2.ids.length);
+  }
+
+  // 登录判断以账户页为准：账户页没登录时，观看记录（可能是游客记录）不采用
+  {
+    const tvUrl = C.BY_ID["tencent-video"].accountUrl;
+    const old = Date.now() - 40 * DAY;
+    const mk = (text, url) => Object.assign({}, pages, { [tvUrl]: { url: url || tvUrl, text } });
+    const sub0 = () => [{ id: "g1", name: "腾讯视频", catalogId: "tencent-video", mode: "activity", provider: "tencent", urlPattern: "v.qq.com", idleDays: 30, lastUsed: old, sig: "s" }];
+    const tx = { ids: ["guest@1"], lastTs: Date.now() - 3600000, count: 1, sample: ["游客看的片"], strategy: "tencent" };
+    const Bg = boot(mk("腾讯视频 VIP会员 请登录 登录后查看会员权益 " + "x".repeat(300), "https://film.qq.com/login"), { tx });
+    Bg.store.subs = sub0();
+    await Bg.send({ type: "RUN_CHECK", ids: ["g1"] });
+    await wait(30);
+    const g1 = Bg.store.subs[0];
+    t("账户页没登录：观看记录不采用，标成「读不到：没登录」，最近使用不变", g1.signal && g1.signal.ok === false && g1.signal.reason === "logged_out" &&
+      g1.lastUsed === old && !g1.watchTitle && g1.loginState === "logged_out", { signal: g1.signal, lastUsed: g1.lastUsed, ls: g1.loginState });
+    const Bu = boot(mk("页面改版了 " + "x".repeat(300)), { tx });
+    Bu.store.subs = sub0();
+    await Bu.send({ type: "RUN_CHECK", ids: ["g1"] });
+    await wait(30);
+    const u1 = Bu.store.subs[0];
+    t("账户页读不准、观看记录有内容：照常用，记「登录状态未确认」", u1.signal.ok && Math.abs(u1.lastUsed - tx.lastTs) < 1000 && u1.loginState === "unconfirmed");
+    const Bo = boot(mk("我的VIP 超级影视VIP 有效期至2027年1月1日 " + "x".repeat(300)), { tx });
+    Bo.store.subs = sub0();
+    await Bo.send({ type: "RUN_CHECK", ids: ["g1"] });
+    await wait(30);
+    t("账户页读到套餐：登录了，正常用观看记录", Bo.store.subs[0].signal.ok && Bo.store.subs[0].loginState === "ok");
+  }
+
+  // 优酷：从页面收到的 JSON 里找带观看时间和片名的列表
+  {
+    const watchedAt = Date.now() - 2 * DAY;
+    const o8 = { tx: null };
+    const B8 = boot(pages, o8);
+    const ex = B8.ctx.youkuExtract;
+    const sec = Math.floor(watchedAt / 1000);
+    const body = { api: "mtop.youku.ucenter.history", data: { model: { list: [
+      { videoId: "XNa", title: "庆余年 第二季 第5集", lastPlayTime: sec - 3600, extra: { showName: "庆余年" } },
+      { videoId: "XNb", title: "繁花 第1集", lastPlayTime: String(sec), showUpdateTime: Date.now() - 1000 },
+      { videoId: "XNc", title: "", lastPlayTime: sec } ] }, banner: [{ name: "广告", img: "x" }] } };
+    const win = { __idlesubsHist: { calls: [{ path: "acs.youku.com/h5/mtop.youku.ucenter.history/1.0/", size: 500 }], bodies: [{ path: "acs.youku.com/h5/x", json: body }] } };
+    win.window = win;
+    const ctx8 = Object.assign(win, { Date, Number, String, Math, Promise, Array, Object, JSON, RegExp, isFinite, setTimeout,
+      document: { body: { innerText: "" }, querySelectorAll: () => [] }, location: { href: "https://www.youku.com/ku/usc/index" } });
+    const yr = await vm.runInNewContext("(" + ex.toString() + ")", ctx8)();
+    t("优酷：找到观看记录列表，最近一次 = 最新的观看时间，带片名", yr.count === 2 && Math.abs(yr.lastTs - sec * 1000) < 1 && yr.sample[0] === "繁花 第1集" && yr.ids[0].indexOf("XNb@") === 0, yr);
+    // 监听脚本：JSONP 包装也能解析
+    const win2 = { fetch: () => Promise.resolve({ headers: { get: () => "application/javascript" }, clone: () => ({ text: () => Promise.resolve('mtopjsonp3({"ret":["SUCCESS"],"data":{"a":1}})') }) }) };
+    win2.window = win2;
+    function XHR() {} XHR.prototype.open = function () {}; XHR.prototype.send = function () {}; XHR.prototype.addEventListener = function () {};
+    vm.runInNewContext(fs.readFileSync(path.join(__dirname, "hist-hook.js"), "utf8"), Object.assign(win2, { XMLHttpRequest: XHR, JSON, String, URL, location: { href: "https://www.youku.com/ku/usc/index" } }));
+    await win2.fetch("https://acs.youku.com/h5/mtop.youku.x/1.0/?jsonp=mtopjsonp3");
+    await wait(10);
+    t("通用监听：JSONP 包装的结果也能留下", win2.__idlesubsHist.bodies.length === 1 && win2.__idlesubsHist.bodies[0].json.data.a === 1 && win2.__idlesubsHist.calls[0].path === "acs.youku.com/h5/mtop.youku.x/1.0/");
+    // 添加优酷：读观看记录
+    const o9 = {};
+    const B9 = boot(pages, o9);
+    vm.runInContext("youkuExtract.__isYouku = 1", B9.ctx);
+    const r9 = await B9.send({ type: "CATALOG_ADD", id: "youku" });
+    await wait(40);
+    t("添加优酷：按观看记录判断，读取时挂上通用监听并在读完后注销", r9.ok && B9.store.subs[0].mode === "activity" && B9.store.subs[0].provider === "youku" && !(o9.reg || []).length);
   }
 
   // 百度网盘：页面文字里没有空间时，用网盘自己的用量接口
