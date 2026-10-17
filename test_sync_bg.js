@@ -64,8 +64,10 @@ async function suite(label, fetchImpl, email) {
   let r = await A.send({ type: "SYNC_SET", enabled: true });
   t("没登录不能开同步", !r.ok && r.reason === "logged_out");
   await A.send({ type: "AUTH_SIGN_UP", email, password: "correct-horse-9" });
-  r = await A.send({ type: "SYNC_SET", enabled: true });
-  t("设备 A 开启同步：上传 3 个订阅", r.ok && r.pushed && r.count === 3, r);
+  await wait(150);
+  t("设备 A 第一次登录：自动开启云端同步并上传 3 个订阅", A.store.sync && A.store.sync.enabled && A.store.sync.lastSyncAt && !A.store.sync.userSet, A.store.sync);
+  r = await A.send({ type: "SYNC_NOW" });
+  t("云端已经有这 3 个订阅（不用再上传）", r.ok && r.pushed === false && r.count === 3, r);
   A.store.subs[0].sig = { ids: ["secret-video-id"] }; A.store.subs[0].hist = { days30: 9 };
 
   await B.send({ type: "AUTH_SIGN_IN", email, password: "correct-horse-9" });
@@ -142,6 +144,10 @@ async function suite(label, fetchImpl, email) {
   t("弹窗能看到同步状态", st.sync.enabled && st.sync.lastSyncAt > 0 && !st.sync.lastError);
   r = await A.send({ type: "SYNC_SET", enabled: false, deleteCloud: true });
   t("关闭同步并删除云端数据；本机订阅保留", r.ok && r.cloudDeleted && A.store.subs.length >= 4);
+  await A.send({ type: "AUTH_SIGN_OUT" });
+  await A.send({ type: "AUTH_SIGN_IN", email, password: "correct-horse-9" });
+  await wait(100);
+  t("自己关掉过同步的，再登录不会自动打开", A.store.sync && !A.store.sync.enabled);
   r = await B.send({ type: "SYNC_NOW" });
   t("云端删掉后，B 再同步时把自己的数据重新传上去（不会把 B 清空）", r.ok && B.store.subs.length >= 4);
 }

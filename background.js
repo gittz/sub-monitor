@@ -848,7 +848,10 @@ async function finishSignIn(r, email) {
   const user = me.ok && me.body ? me.body.user : (r.body && r.body.user ? { id: r.body.user.id, email: r.body.user.email, name: r.body.user.name } : { email });
   const auth = { token, user, subLimit: me.ok && me.body ? me.body.subLimit : null, verifiedAt: Date.now() };
   await chrome.storage.local.set({ auth });
-  syncNow("login").catch(() => {});   // 开过云端同步的话，登录后马上合并一次
+  // 登录后默认开启云端同步：用户自己没开关过（也没同步过）就自动打开；自己关掉过的不再自动开
+  const { sync: sync0 } = await chrome.storage.local.get(["sync"]);
+  if (!sync0 || (!sync0.userSet && !sync0.lastSyncAt && !sync0.enabled)) await setSyncState({ enabled: true, auto: true });
+  syncNow("login").catch(() => {});   // 登录后马上合并一次
   return { ok: true, auth: publicAuth(auth) };
 }
 // Google 登录：用 Chrome 自带的授权窗口拿 Google 的 ID token，交给登录服务验证。
@@ -1417,10 +1420,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         case "SYNC_SET": {
           if (msg.enabled) {
             if (!(await getAuth())) { sendResponse({ ok: false, reason: "logged_out" }); break; }
-            await setSyncState({ enabled: true });
+            await setSyncState({ enabled: true, userSet: true });
             sendResponse(await syncNow("enable"));
           } else {
-            await setSyncState({ enabled: false, version: 0 });
+            await setSyncState({ enabled: false, version: 0, userSet: true });
             if (msg.deleteCloud) {
               const a = await getAuth();
               const r = a ? await AuthLib.call(AuthLib.AUTH_BASE_URL, "/api/sync", { token: a.token, method: "DELETE" }) : { ok: false };

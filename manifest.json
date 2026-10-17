@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "IdleSubs - 闲置订阅",
-  "version": "2.22.2",
+  "version": "2.23.0",
   "description": "监控你配置的订阅是否还在使用，长期闲置时提醒你可以退订，省下每月自动扣费。",
   "permissions": [
     "tabs",
