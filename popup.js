@@ -1,6 +1,18 @@
 // popup.html 先加载 lib.js，与本文件共享全局作用域，
 // computeStatus / wastedPerMonth / normalizeDomain 可直接用（同样不要再解构声明一遍）。
 const $ = (id) => document.getElementById(id);
+// 界面语言：英文模式下自动把界面上的中文换成英文（i18n.js）
+if (typeof I18N !== "undefined") {
+  I18N.start(document);
+  // 右上角「中 / EN」：显示的是另一种语言，点一下切过去（记住选择，优先于浏览器语言）
+  const lt = document.getElementById("langToggle");
+  if (lt) {
+    const en = I18N.getLang() === "en";
+    lt.textContent = en ? "中" : "EN";
+    lt.title = en ? "切换到中文" : "切换到英文";
+    lt.addEventListener("click", () => { I18N.setLang(en ? "zh" : "en"); location.reload(); });
+  }
+}
 
 let state = { subs: [], records: [], lastCheck: null, paused: false, providers: [], mailScan: null, mailIgnored: [], mailPrefs: {} };
 
@@ -453,8 +465,8 @@ function llmHtml(s) {
   const L = s.llm, st = L.stats || {};
   const ORIGIN = { apple: "经 App Store 付费，要在 iPhone 的订阅管理里退", google: "经 Google Play 付费，要在 Play 商店里退" };
   const line1 = [`套餐 <b>${esc(L.plan ? L.plan.label : "未知")}</b>`,
-    `近 30 天用了 <b>${st.activeDays30 || 0}</b> 天`,
-    `近 7 天 <b>${st.convs7 || 0}</b> 个对话`].join(" · ");
+    T("近 30 天用了 {n} 天", { n: `<b>${st.activeDays30 || 0}</b>` }),
+    T("近 7 天 {n} 个对话", { n: `<b>${st.convs7 || 0}</b>` })].join(" · ");
   let line2 = "";
   if (L.usage && (L.usage.fiveHour != null || L.usage.week != null)) {
     line2 = `<div>额度：5 小时 ${meter(L.usage.fiveHour)} · 本周 ${meter(L.usage.week)}${L.usage.weekOpus != null ? ` · 本周高阶模型 ${meter(L.usage.weekOpus)}` : ""}</div>`;
@@ -1312,8 +1324,7 @@ function renderMail() {
   } else if (ms && ms.status === "done") {
     const n = (ms.candidates || []).length;
     summary = `<div class="diag ${n ? "good" : ""}">
-      ${ms.email ? "账号 <b>" + esc(ms.email) + "</b>：" : ""}读了 ${ms.pagesRead || 0} 页、${ms.rowsRead} 封搜索结果，
-      其中 ${ms.billingRows} 封像收据或续费通知，归并出 <b>${n}</b> 个候选订阅。
+      ${ms.email ? T("账号 {e}：", { e: "<b>" + esc(ms.email) + "</b>" }) : ""}${T("读了 {p} 页、{r} 封搜索结果，其中 {b} 封像收据或续费通知，归并出 {n} 个候选订阅。", { p: ms.pagesRead || 0, r: ms.rowsRead, b: ms.billingRows, n: "<b>" + n + "</b>" })}
       ${ms.warn === "timeout" ? "<br>⚠ 有页面加载超时，结果可能不全。" : ""}
       ${ms.warn === "limit" ? "<br>⚠ 达到了读取上限，更早的邮件没读到。可以调大「最多读取」再扫。" : ""}
       ${ms.failedReads ? `<br>⚠ 有 ${ms.failedReads} 封读取失败，已跳过。` : ""}

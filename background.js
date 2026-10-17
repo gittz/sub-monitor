@@ -7,7 +7,16 @@
 // 注意：importScripts 载入的脚本与本文件共享同一个全局作用域，
 // lib.js 里的 DAY / hostMatches / parseLabelToTs / computeStatus 等可直接使用。
 // 千万不要再用 const 解构一遍同名变量 —— 会触发 "Identifier has already been declared"。
-importScripts("lib.js", "mailscan.js", "llm.js", "catalog.js", "history.js", "auth.js", "sync.js");
+importScripts("i18n.js", "i18n-en.js", "lib.js", "mailscan.js", "llm.js", "catalog.js", "history.js", "auth.js", "sync.js");
+// 通知文案跟界面语言走：用户在界面里切换过就用他的选择，否则跟浏览器语言
+I18N.initFromStorage();
+if (chrome.storage.onChanged) chrome.storage.onChanged.addListener((ch, area) => { if (area === "local" && ch.uiLang) I18N.initFromStorage(); });
+function notify(id, opts) {
+  const o = Object.assign({}, opts);
+  if (o.title) o.title = I18N.tr(o.title);
+  if (o.message) o.message = I18N.tr(o.message);
+  return chrome.notifications.create(id, o);
+}
 
 const MAX_RECORDS = 2000;
 
@@ -950,6 +959,10 @@ function syncNow(reason) {
   syncRunning = syncOnce(reason).finally(() => { syncRunning = null; });
   return syncRunning;
 }
+// 同步带来的新订阅：在后台检查一次（只检查这几个），不等它完成
+function checkNewFromCloud(ids) {
+  if (ids && ids.length) setTimeout(() => { runCheck(ids.slice()).catch(() => {}); }, 2000);
+}
 async function syncOnce(reason) {
   const st = await getSyncState();
   if (!st.enabled) return { ok: false, reason: "disabled" };
@@ -963,6 +976,7 @@ async function syncOnce(reason) {
   if (remote.status === 401) { await verifyAuth(true); return fail("unauthorized"); }
   if (!remote.ok || !remote.body) return fail(remote.code === "NETWORK" ? "network" : "server");
   let rv = remote.body.version || 0, rdata = remote.body.data;
+  let newFromCloud = [];
 
   for (let attempt = 0; attempt < 3; attempt++) {
     // 合并在锁里做，避免和检查 / 编辑同时写
@@ -970,6 +984,9 @@ async function syncOnce(reason) {
       const ls = await chrome.storage.local.get(["subsDeleted", "subOrder", "ownVisits"]);
       const local = { subs: await getSubs(), deleted: ls.subsDeleted || {}, order: ls.subOrder || null, own: ls.ownVisits || [] };
       const m = SyncLib.merge(local, rdata || { subs: [], deleted: {} });
+      // 云端带来的、这台设备上还没有的订阅（比如新装插件第一次同步）：稍后检查一次，读到套餐 / 使用情况
+      const had = new Set(local.subs.map(x => SyncLib.keyOf(x)));
+      m.subs.forEach(x => { if (!had.has(SyncLib.keyOf(x)) && !x.lastChecked && newFromCloud.indexOf(x.id) < 0) newFromCloud.push(x.id); });
       // 其它设备检查时打开的页面（经 Chrome 历史同步可能被算成访问）：从访问记录里去掉
       SyncLib.purgeOwn(m.subs, m.own, subDomains);
       await setSubs(m.subs, { fromSync: true });
@@ -979,12 +996,14 @@ async function syncOnce(reason) {
     const p = SyncLib.payload(merged.subs, merged.deleted, merged.order, merged.own);
     if (rdata && SyncLib.sameSynced(merged, rdata)) {
       await setSyncState({ version: rv, userId: a.user.id, lastSyncAt: Date.now(), lastError: null });
+      checkNewFromCloud(newFromCloud);
       return { ok: true, pushed: false, count: merged.subs.length };
     }
     if (SyncLib.sizeOf(p) > SyncLib.MAX_BYTES) return fail("too_large");
     const put = await AuthLib.call(AuthLib.AUTH_BASE_URL, "/api/sync", { token: a.token, method: "PUT", body: { data: p, baseVersion: rv } });
     if (put.ok && put.body) {
       await setSyncState({ version: put.body.version, userId: a.user.id, lastSyncAt: Date.now(), lastError: null });
+      checkNewFromCloud(newFromCloud);
       return { ok: true, pushed: true, count: merged.subs.length };
     }
     if (put.status === 409 && put.body) { rv = put.body.version || 0; rdata = put.body.data; continue; }   // 另一台设备刚传过：重新合并
@@ -1148,7 +1167,7 @@ async function resumePendingOnce() {
     const sub = (res && res.sub) || subs.find(x => x.id === pg.id);
     const name = (sub && sub.name) || (SubCatalog.BY_ID[pg.id] || {}).name || (LlmLib.LLM_SITES[pg.id] || {}).name || "";
     const done = pg.action === "diag" ? `${name} 诊断完成` : res && res.ok ? `已添加 ${name}` : `添加 ${name} 没成功`;
-    chrome.notifications.create("grant-" + Date.now(), { type: "basic", iconUrl: "icons/icon128.png",
+    notify("grant-" + Date.now(), { type: "basic", iconUrl: "icons/icon128.png",
       title: done, message: "点插件图标查看详情。" });
   }
 }
@@ -1161,11 +1180,12 @@ chrome.permissions.onAdded.addListener(() => {
 function notifyRenewal(sub, days, planLabel, adviceText) {
   const adv = adviceText != null ? adviceText : (sub.llm.cross || (sub.llm.advice && sub.llm.advice.text) || "");
   const label = planLabel || (sub.llm && sub.llm.plan && sub.llm.plan.label) || "";
-  chrome.notifications.create(`renew-${sub.id}`, {
+  notify(`renew-${sub.id}`, {
     type: "basic",
     iconUrl: "icons/icon128.png",
-    title: `${sub.name} ${label} ${days <= 0 ? "今天" : days + " 天后"}自动续费`,
-    message: adv + " 点此打开账单页。",
+    title: days <= 0 ? T("{name} {plan} 今天自动续费", { name: sub.name, plan: label }).replace(/\s+/g, " ")
+                     : T("{name} {plan} {n} 天后自动续费", { name: sub.name, plan: label, n: days }).replace(/\s+/g, " "),
+    message: (adv ? I18N.tr(adv) + " " : "") + T("点此打开账单页。"),
     priority: 2
   });
 }
@@ -1173,7 +1193,7 @@ function notifyRenewal(sub, days, planLabel, adviceText) {
 // ---------- 闲置检查与提醒 ----------
 function notifyIdle(sub, days) {
   const money = sub.price ? `，每月 ${sub.currency || "$"}${sub.price}` : "";
-  chrome.notifications.create(`idle-${sub.id}`, {
+  notify(`idle-${sub.id}`, {
     type: "basic",
     iconUrl: "icons/icon128.png",
     title: `${sub.name} 已闲置 ${days} 天`,
@@ -1186,7 +1206,7 @@ function notifyIdle(sub, days) {
 function notifySignalLost(sub, reason, brokenDays) {
   const what = SIGNAL_REASONS[reason] || "读取失败";
   const howLong = brokenDays > 0 ? `已 ${brokenDays} 天读不到。` : "";
-  chrome.notifications.create(`signal-${sub.id}`, {
+  notify(`signal-${sub.id}`, {
     type: "basic",
     iconUrl: "icons/icon128.png",
     title: `${sub.name}：${what}`,
@@ -1361,12 +1381,23 @@ chrome.runtime.onInstalled.addListener(async () => {
       await setSubs(subs);
     });
   }
-  chrome.alarms.create("dailyCheck", { periodInMinutes: 60 * 12, delayInMinutes: 1 });
+  ensureDailyAlarm();
 });
 
-chrome.runtime.onStartup.addListener(() => {
-  chrome.alarms.create("dailyCheck", { periodInMinutes: 60 * 12, delayInMinutes: 1 });
-});
+chrome.runtime.onStartup.addListener(() => { ensureDailyAlarm(); });
+
+// 定时检查：每 12 小时一次。浏览器重启 / 插件更新时不重置计时（按上次全部检查的时间接着算），
+// 也不在启动后马上检查；超过 12 小时没检查的，启动后过 15 分钟补一次。
+const CHECK_PERIOD_MIN = 60 * 12;
+async function ensureDailyAlarm() {
+  try {
+    const cur = await chrome.alarms.get("dailyCheck");
+    if (cur && cur.periodInMinutes === CHECK_PERIOD_MIN) return;
+    const { lastCheck = 0 } = await chrome.storage.local.get(["lastCheck"]);
+    const left = lastCheck ? CHECK_PERIOD_MIN - (Date.now() - lastCheck) / 60000 : CHECK_PERIOD_MIN;
+    chrome.alarms.create("dailyCheck", { periodInMinutes: CHECK_PERIOD_MIN, delayInMinutes: Math.max(15, Math.round(left)) });
+  } catch (e) {}
+}
 
 // 点通知直接打开该订阅网址，方便去退订
 chrome.notifications.onClicked.addListener(async (id) => {

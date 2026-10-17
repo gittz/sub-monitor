@@ -21,7 +21,7 @@ function boot(pages, opts) {
   };
   const ctx = { console, chrome, fetch: opts.fetch, setTimeout: (f) => setTimeout(f, 0), clearTimeout, Promise, Date, JSON, Math, Set, Map, URL, URLSearchParams, importScripts: () => {} };
   ctx.globalThis = ctx; vm.createContext(ctx);
-  for (const f of ["lib.js", "mailscan.js", "llm.js", "catalog.js", "history.js", "auth.js", "sync.js", "background.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, f), "utf8"), ctx);
+  for (const f of ["i18n.js", "i18n-en.js", "lib.js", "mailscan.js", "llm.js", "catalog.js", "history.js", "auth.js", "sync.js", "background.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, f), "utf8"), ctx);
   const send = (m) => new Promise(r => listeners.msg(m, {}, r));
   return { store, log, notes, send };
 }

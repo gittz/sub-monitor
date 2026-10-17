@@ -5,7 +5,7 @@ const realTimeout = setTimeout;
 function boot(pages, opts) {
   opts = opts || {};
   const store = { subs: [], records: [] }, listeners = {}, notes = [], opened = [], popups = [];
-  const tabUrl = {};
+  const tabUrl = {}, alarmsMade = [];
   let tabSeq = 100;
   const ev = (n) => ({ addListener: (f) => { (listeners[n] = listeners[n] || []).push(f); }, removeListener() {} });
   const chrome = {
@@ -36,15 +36,16 @@ function boot(pages, opts) {
       return [{ result: { ids: ["v" + Math.random()], topLabel: opts.topLabel || "", loggedOut: false, historyOff: false } }];
     } },
     webNavigation: { onCompleted: ev("nav"), onHistoryStateUpdated: ev("b") },
-    alarms: { onAlarm: ev("c"), create() {} }, runtime: { onInstalled: ev("d"), onStartup: ev("e"), onMessage: ev("msg") },
+    alarms: { onAlarm: ev("c"), get: async (n) => alarmsMade.filter(x => x.name === n).pop() || null, create: (n, o) => alarmsMade.push(Object.assign({ name: n }, o)) },
+    runtime: { onInstalled: ev("d"), onStartup: ev("e"), onMessage: ev("msg") },
     notifications: { onClicked: ev("f"), create: (id, o) => notes.push({ id, o }) }
   };
   const ctx = { console, chrome, setTimeout: (f, ms) => realTimeout(f, Math.min(ms || 0, 5)), clearTimeout, Promise, Date, JSON, Math, Set, Map, URL, URLSearchParams, RegExp, importScripts: () => {} };
   ctx.globalThis = ctx; vm.createContext(ctx);
-  for (const f of ["lib.js", "mailscan.js", "llm.js", "catalog.js", "history.js", "auth.js", "sync.js", "background.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, f), "utf8"), ctx);
+  for (const f of ["i18n.js", "i18n-en.js", "lib.js", "mailscan.js", "llm.js", "catalog.js", "history.js", "auth.js", "sync.js", "background.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, f), "utf8"), ctx);
   const send = (m) => new Promise(r => listeners.msg[0](m, {}, r));
   const grant = () => (listeners.padd || []).forEach(f => f({ origins: [] }));
-  return { store, send, notes, opened, ctx, popups, grant, listeners };
+  return { store, send, notes, opened, ctx, popups, grant, listeners, alarmsMade };
 }
 const t = (n, c) => { console.log((c ? "  ✓ " : "  ✗ ") + n); if (!c) process.exitCode = 1; };
 const wait = (ms) => new Promise(r => realTimeout(r, ms));
@@ -302,6 +303,24 @@ const wait = (ms) => new Promise(r => realTimeout(r, ms));
     await wait(30);
     const y7 = B7.store.subs[0], exp = B7.ctx.parseLabelToTs("星期一", Date.now());
     t("YouTube：最近观看取观看记录的日期（星期一），最近使用也是它", y7.lastWatched === exp && y7.lastUsed === exp, y7);
+  }
+
+  // 定时检查：每 12 小时；装好 / 浏览器启动时不马上检查，按上次全部检查时间接着算
+  {
+    const B8 = boot(pages, {});
+    await B8.listeners.d[0](); await wait(10);
+    const a1 = B8.alarmsMade[0];
+    t("刚装好：12 小时一次，第一次在 12 小时后（不是 1 分钟后）", a1 && a1.periodInMinutes === 720 && a1.delayInMinutes === 720, a1);
+    await B8.listeners.e[0](); await wait(10);
+    t("浏览器重启：闹钟已经在，不重置计时", B8.alarmsMade.length === 1);
+    const B9 = boot(pages, {});
+    B9.store.lastCheck = Date.now() - 2 * 3600e3;
+    await B9.listeners.e[0](); await wait(10);
+    t("上次检查是 2 小时前：10 小时后再检查", Math.abs(B9.alarmsMade[0].delayInMinutes - 600) <= 1);
+    const B10 = boot(pages, {});
+    B10.store.lastCheck = Date.now() - 20 * 3600e3;
+    await B10.listeners.e[0](); await wait(10);
+    t("超过 12 小时没检查：启动后 15 分钟补一次", B10.alarmsMade[0].delayInMinutes === 15);
   }
 
   // 8. B站活动记录 provider 存在

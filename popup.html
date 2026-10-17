@@ -451,6 +451,7 @@
                background:var(--warm-soft); color:#4b5563; font-size:12.5px; text-align:left; cursor:pointer; }
   .sv-banner:hover { background:#f6ead6; }
   .sv-banner span { flex:1; }
+  .sv-banner span { white-space:normal; text-align:left; min-width:0; }
   .sv-banner[hidden] { display:none; }
   .sv-banner svg { flex:none; color:#a8784a; }
   .sv-banner.on { box-shadow:inset 0 0 0 1.5px #e3c79c; }
@@ -609,12 +610,16 @@
   .ad-money select { flex:none; width:96px; padding:0 6px; border:1px solid var(--ad-border); border-radius:8px; background:var(--bg); color:var(--fg); font-size:13px; }
   .ad-money input { flex:1; min-width:0; }
   .sv-metrics small { display:block; margin-top:1px; font-size:10.5px; color:var(--muted); font-weight:400; }
+  /* 中 / EN 切换 */
+  .ih-lang { flex:none; height:24px; min-width:30px; padding:0 7px; border:1px solid var(--border); border-radius:6px; background:var(--bg); color:var(--muted); font-size:11.5px; font-weight:600; cursor:pointer; }
+  .ih-lang:hover { color:var(--fg); background:var(--hover); }
 </style>
 </head>
 <body>
   <header class="ih">
     <span class="ih-logo"><svg viewBox="0 0 40 32" width="30" height="24" aria-hidden="true"><defs><linearGradient id="lga" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3b82f6"/><stop offset="1" stop-color="#1d4ed8"/></linearGradient></defs><rect x="6" y="2" width="30" height="20" rx="4" transform="rotate(-8 21 12)" fill="#93c5fd"/><rect x="2" y="7" width="32" height="22" rx="5" fill="url(#lga)"/><rect x="2" y="12" width="32" height="3.2" fill="#1e40af" opacity=".45"/><path d="M10 20.5q2 2 4 0M19 20.5q2 2 4 0" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round"/><circle cx="33" cy="25" r="4.2" fill="#fb923c" stroke="#fff" stroke-width="1.6"/></svg></span><b class="ih-name">IdleSubs</b><span class="ih-sub">闲置订阅</span>
     <span id="lastCheck"></span>
+    <button type="button" class="ih-lang" id="langToggle" title="切换到英文">EN</button>
     <span id="acct"></span>
   </header>
 
@@ -802,6 +807,8 @@
     <div class="list" id="logList"></div>
   </div>
 
+  <script src="i18n.js"></script>
+  <script src="i18n-en.js"></script>
   <script src="lib.js"></script>
   <script src="catalog.js"></script>
   <script src="auth.js"></script>

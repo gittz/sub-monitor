@@ -38,6 +38,9 @@ w.chrome = {
 w.confirm = () => { throw new Error("不能用原生 confirm"); };
 w.close = () => { w.__closed = (w.__closed || 0) + 1; };
 w.Element.prototype.scrollIntoView = function () {};
+Object.defineProperty(w.navigator, "language", { value: "zh-CN" });   // 这些用例按中文界面写；英文界面另有用例
+w.eval(fs.readFileSync(path.join(dir, "i18n.js"), "utf8"));
+w.eval(fs.readFileSync(path.join(dir, "i18n-en.js"), "utf8"));
 w.eval(fs.readFileSync(path.join(dir, "lib.js"), "utf8"));
 w.eval(fs.readFileSync(path.join(dir, "catalog.js"), "utf8"));
 w.eval(fs.readFileSync(path.join(dir, "auth.js"), "utf8"));
@@ -283,7 +286,8 @@ setTimeout(async () => {
   };
   w2.close = () => { w2.__closed = 1; };
   w2.Element.prototype.scrollIntoView = function () {};
-  for (const f of ["lib.js", "catalog.js", "auth.js", "sync.js", "popup.js"]) w2.eval(fs.readFileSync(path.join(dir, f), "utf8"));
+  Object.defineProperty(w2.navigator, "language", { value: "zh-CN" });
+  for (const f of ["i18n.js", "i18n-en.js", "lib.js", "catalog.js", "auth.js", "sync.js", "popup.js"]) w2.eval(fs.readFileSync(path.join(dir, f), "utf8"));
   await new Promise(r => setTimeout(r, 60));
   const dlg2 = w2.document.querySelector(".dlg-mask");
   t("授权小窗口：说明要授权什么，有「继续授权」", !!dlg2 && /Netflix/.test(dlg2.textContent) && /继续授权/.test(dlg2.textContent) && !w2.document.getElementById("view-add").hidden);
@@ -291,4 +295,24 @@ setTimeout(async () => {
   await new Promise(r => setTimeout(r, 40));
   t("点「继续授权」：在小窗口里申请权限，授权后让后台接着做，窗口不关", reqArg && reqArg.origins[0] === "https://netflix.com/*" &&
     sent2.some(m => m.type === "PENDING_GRANT" && m.inWindow) && sent2.some(m => m.type === "RESUME_PENDING") && !w2.__closed);
+
+  // 英文界面：浏览器语言不是中文时默认英文
+  const dom3 = new JSDOM(html, { runScripts: "outside-only", url: "chrome-extension://x/popup.html?panel=1" });
+  const w3 = dom3.window;
+  w3.chrome = {
+    runtime: { sendMessage: (m, cb) => setTimeout(() => cb(m.type === "GET_STATE"
+        ? { ok: true, ...store, lastCheck: Date.now(), paused: false, subLimit: 5, guestLimit: 5, auth: null, googleLogin: true, providers: [], noActivityPage: [] }
+        : { ok: true }), 0) },
+    storage: { onChanged: { addListener() {} } },
+    permissions: { request: async () => true, contains: async () => true },
+    tabs: { create() {} }, identity: { getRedirectURL: () => "https://abcdef.chromiumapp.org/" }
+  };
+  w3.Element.prototype.scrollIntoView = function () {};
+  Object.defineProperty(w3.navigator, "language", { value: "en-US" });
+  for (const f of ["i18n.js", "i18n-en.js", "lib.js", "catalog.js", "auth.js", "sync.js", "popup.js"]) w3.eval(fs.readFileSync(path.join(dir, f), "utf8"));
+  await new Promise(r => setTimeout(r, 80));
+  const txt3 = w3.document.body.textContent;
+  t("英文浏览器：界面默认英文，没有残留中文", w3.I18N.getLang() === "en" && /My subscriptions/.test(txt3) && w3.document.documentElement.lang === "en" &&
+    w3.I18N.missing.size === 0 || (console.log("  未翻译：", [...w3.I18N.missing]), false));
+  t("英文界面：语言按钮显示「中」可切回中文", w3.document.getElementById("langToggle").textContent.trim() === "中");
 }, 50);

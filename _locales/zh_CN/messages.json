@@ -1,0 +1,5 @@
+{
+  "appName": { "message": "IdleSubs - 闲置订阅" },
+  "appDesc": { "message": "监控你配置的订阅是否还在使用，长期闲置时提醒你可以退订，省下每月自动扣费。" },
+  "actionTitle": { "message": "打开 IdleSubs 侧边栏" }
+}

@@ -27,7 +27,7 @@ function boot(fetchImpl, opts) {
   const ctx = { console, chrome, fetch: fetchImpl, setTimeout: (f, ms) => realTimeout(f, Math.min(ms || 0, 5)), clearTimeout, Promise, Date, JSON, Math, Set, Map, URL, URLSearchParams, RegExp, importScripts: () => {} };
   ctx.globalThis = ctx; vm.createContext(ctx);
   ctx.crypto = require("crypto").webcrypto;
-  for (const f of ["lib.js", "mailscan.js", "llm.js", "catalog.js", "history.js", "auth.js", "sync.js", "background.js"]) {
+  for (const f of ["i18n.js", "i18n-en.js", "lib.js", "mailscan.js", "llm.js", "catalog.js", "history.js", "auth.js", "sync.js", "background.js"]) {
     let src = fs.readFileSync(path.join(__dirname, f), "utf8");
     // 测试不依赖 auth.js 里实际填的 Client ID
     if (f === "auth.js") src = src.replace(/const GOOGLE_CLIENT_ID = "[^"]*";/, `const GOOGLE_CLIENT_ID = "${opts.clientId || ""}";`);

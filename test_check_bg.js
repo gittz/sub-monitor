@@ -43,7 +43,7 @@ function boot(readMs, withWindows) {
   // 后台脚本里的固定等待（等页面渲染）在测试里缩短
   const ctx = { console, chrome, setTimeout: (f, ms) => realTimeout(f, Math.min(ms || 0, 5)), clearTimeout, Promise, Date, JSON, Math, Set, Map, URL, URLSearchParams, importScripts: () => {} };
   ctx.globalThis = ctx; vm.createContext(ctx);
-  for (const f of ["lib.js", "mailscan.js", "llm.js", "catalog.js", "history.js", "auth.js", "sync.js", "background.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, f), "utf8"), ctx);
+  for (const f of ["i18n.js", "i18n-en.js", "lib.js", "mailscan.js", "llm.js", "catalog.js", "history.js", "auth.js", "sync.js", "background.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, f), "utf8"), ctx);
   const send = (m) => new Promise(r => listeners.msg[0](m, {}, r));
   return { store, send, stats: () => ({ maxActive }), log, created, removedWins, wins };
 }
