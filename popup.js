@@ -1044,7 +1044,9 @@ function resetForm(sub, prefill) {
   $("prefillNote").hidden = true;
   $("formErr").hidden = true;
   $("f-id").value = (sub && sub.id) || "";
-  $("f-currency").value = (s && s.currency) || "$";
+  // 币种：订阅原来的 > 收录服务的默认币种 > 按浏览器语言（中文默认人民币）
+  const cp0 = s && s.catalogId && SubCatalog.BY_ID[s.catalogId];
+  setCurrency((s && s.currency) || (cp0 && cp0.currency) || (/^zh/i.test(navigator.language || "") ? "¥" : "$"));
   $("f-name").value = s ? s.name || "" : "";
   $("f-url").value = s ? s.urlPattern || "" : "";
   // 收录的服务（常见服务 / 大模型）：网址固定，不让改——套餐和使用情况从官方页面读取，访问次数也按官方域名统计
@@ -1071,6 +1073,12 @@ function knownOf(sub) {
     return { name: (p && p.name) || sub.name, domains: (p && p.domains) || [sub.urlPattern].filter(Boolean) };
   }
   return null;
+}
+// 设置月费币种；读到的币种不在列表里就临时加一项
+function setCurrency(c) {
+  const sel = $("f-currency");
+  if (![...sel.options].some(o => o.value === c)) { const o = document.createElement("option"); o.value = c; o.textContent = c; sel.appendChild(o); }
+  sel.value = c;
 }
 function renderAddLimit() {
   const full = !editingSub && atLimit();
