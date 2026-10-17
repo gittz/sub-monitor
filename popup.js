@@ -418,8 +418,9 @@ function acctHtml(s, st) {
   } else {
     body = `<div>还没读过账户页，点「检查」读一次。</div>`;
   }
+  // 诊断不再给用户看：按住 Alt 点「检查」才会诊断（开发排查用），诊断结果展开时给一个收起按钮
   const diagOpen = !!cdiagOut[s.id] && !cdiagBusy.has(s.id);
-  btns.push(`<button class="mini" data-cdiag="${esc(s.id)}">${diagOpen ? "收起诊断" : "诊断"}</button>`);
+  if (diagOpen) btns.push(`<button class="mini" data-cdiag="${esc(s.id)}">收起诊断</button>`);
   const adv = a.status === "ok" ? SubCatalog.accountAdvice(p, a, st) : null;
   const advHtml = adv && adv.level !== "keep" ? `<div class="advice ${esc(adv.level)}">${esc(adv.text)}</div>` : "";
   const diag = cdiagOut[s.id] ? `<div class="cdiag">${cdiagOut[s.id]}</div>` : "";
@@ -566,7 +567,7 @@ $("authForm").addEventListener("submit", async (e) => {
 const LLM_ERR = {
   logged_out: (n) => `本浏览器没有登录 ${n}（或登录已过期）。先打开网站登录，再点一次。`,
   no_permission: (n) => `没有获得读取 ${n} 的授权。`,
-  read_failed: (n) => `读不到 ${n} 的数据，可能是网站接口变了或被安全验证拦住。先在本浏览器打开 ${n} 确认能正常使用；还不行的话，到「添加订阅」选 ${n} 点「诊断」，把诊断结果发给开发者。`
+  read_failed: (n) => `读不到 ${n} 的数据，可能是网站接口变了或被安全验证拦住。先在本浏览器打开 ${n} 确认能正常使用；还不行的话，稍后再点「检查」试试。`
 };
 // 大模型（Claude / ChatGPT）：读套餐、对话频次和额度，不读对话内容
 async function addLlm(kind) {
@@ -880,7 +881,7 @@ function showCatalogResult(p, r) {
   const MSG = {
     ok: () => `已添加 ${p.name}：${a.plan.label}${a.price ? `，${a.price.currency}${a.price.monthly}/月` : ""}${a.renewAt ? `，${new Date(a.renewAt).toLocaleDateString("zh-CN")} 续费` : ""}。`,
     logged_out: () => `已添加 ${p.name}，但本浏览器没登录，读不到套餐。登录后在列表里点「检查」。`,
-    unknown: () => `已添加 ${p.name}，但没认出套餐（页面结构未实测）。在列表里点「诊断」看看读到了什么。`,
+    unknown: () => `已添加 ${p.name}，但没认出套餐。可以先在本浏览器打开 ${p.name} 确认已登录，再在列表里点「检查」。`,
     read_failed: () => `已添加 ${p.name}，但账户页没读到内容。先在本浏览器打开确认能正常访问，再点「检查」。`
   };
   stEl.className = a.status === "ok" ? "secstatus" : "secstatus bad";
@@ -1056,7 +1057,7 @@ function resetForm(sub, prefill) {
   }
   $("f-price").value = s && s.price ? s.price : "";
   $("f-days").value = s && s.idleDays ? s.idleDays : 30;
-  $("diagWrap").hidden = !currentProvider();
+  $("diagWrap").hidden = true;   // 诊断不再给用户看（开发排查用 Alt+检查）
   $("diagOut").innerHTML = "";
   syncCatalogHint();
   renderAddLimit();
@@ -1133,13 +1134,19 @@ $("subList").addEventListener("click", async (e) => {
     if (row) { const id = row.dataset.toggle; openRows.has(id) ? openRows.delete(id) : openRows.add(id); renderSubs(); }
     return;
   }
-  const edit = ds.edit, del = ds.del, fix = ds.fix, chk = ds.chk;
+  const edit = ds.edit, del = ds.del, fix = ds.fix;
+  let chk = ds.chk, cdiagAlt = null;
+  // 开发排查：按住 Alt 点「检查」= 诊断（显示读取明细），只对收录服务有效
+  if (chk && e.altKey) {
+    const sa = state.subs.find(x => x.id === chk), pa = sa && SubCatalog.BY_ID[sa.catalogId];
+    if (pa && !pa.special) { cdiagAlt = chk; chk = null; }
+  }
   if (chk) {
     // 单独检查这一个订阅
     await checkSubs([chk]);
     return;
   }
-  const cperm = ds.cperm, copen = ds.copen, cdiag = ds.cdiag;
+  const cperm = ds.cperm, copen = ds.copen, cdiag = ds.cdiag || cdiagAlt;
   if (cperm || copen || cdiag) {
     const s0 = state.subs.find(x => x.id === (cperm || copen || cdiag));
     const p = s0 && SubCatalog.BY_ID[s0.catalogId];
@@ -1250,7 +1257,7 @@ function isTracked(c) {
 
 function statsHtml(st) {
   if (!st) return "";
-  return `<br><span style="opacity:.8">诊断：页面上找到 ${st.rowEls} 行邮件，
+  return `<br><span style="opacity:.8">读取情况：页面上找到 ${st.rowEls} 行邮件，
     其中 ${st.withSender} 行读到发件人、${st.withSubject} 行读到主题、${st.withDate} 行读到日期。</span>`;
 }
 

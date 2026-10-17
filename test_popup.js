@@ -108,10 +108,18 @@ setTimeout(async () => {
   const sub2 = $("subList").innerHTML;
   {
     const btn = () => $("subList").querySelector('[data-cdiag="2"]');
-    btn().click(); await new Promise(r => setTimeout(r, 30));
-    const opened = !!$("subList").querySelector(".cdiag") && btn().textContent === "收起诊断";
+    t("平时没有「诊断」按钮", !btn() && !/>诊断</.test($("subList").innerHTML));
+    sent.length = 0;
+    $("subList").querySelector('[data-chk="2"]').dispatchEvent(new w.MouseEvent("click", { bubbles: true, altKey: true }));
+    await new Promise(r => setTimeout(r, 30));
+    const opened = !!$("subList").querySelector(".cdiag") && btn() && btn().textContent === "收起诊断";
+    t("按住 Alt 点「检查」= 诊断：发 CATALOG_DIAGNOSE，不发 RUN_CHECK", opened && sent.some(m => m.type === "CATALOG_DIAGNOSE") && !sent.some(m => m.type === "RUN_CHECK"));
     btn().click(); await new Promise(r => setTimeout(r, 10));
-    t("诊断结果可以收起：按钮变「收起诊断」，再点一下收起", opened && !$("subList").querySelector(".cdiag") && btn().textContent === "诊断");
+    t("诊断结果可以收起，收起后按钮也消失", !$("subList").querySelector(".cdiag") && !btn());
+    sent.length = 0;
+    $("subList").querySelector('[data-chk="2"]').dispatchEvent(new w.MouseEvent("click", { bubbles: true }));
+    await new Promise(r => setTimeout(r, 30));
+    t("普通点「检查」照常检查", sent.some(m => m.type === "RUN_CHECK"));
   }
   {
     const cap = w.subCaption;
