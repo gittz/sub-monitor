@@ -1,0 +1,48 @@
+{
+  "manifest_version": 3,
+  "name": "IdleSubs - 闲置订阅",
+  "version": "2.21.1",
+  "description": "监控你配置的订阅是否还在使用，长期闲置时提醒你可以退订，省下每月自动扣费。",
+  "permissions": [
+    "tabs",
+    "storage",
+    "webNavigation",
+    "scripting",
+    "alarms",
+    "notifications",
+    "identity",
+    "sidePanel"
+  ],
+  "host_permissions": [
+    "*://*.youtube.com/*"
+  ],
+  "optional_permissions": [
+    "history"
+  ],
+  "optional_host_permissions": [
+    "https://mail.google.com/*",
+    "https://claude.ai/*",
+    "https://chatgpt.com/*",
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    },
+    "default_title": "打开 IdleSubs 侧边栏"
+  },
+  "side_panel": {
+    "default_path": "popup.html?panel=1"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "minimum_chrome_version": "116"
+}
