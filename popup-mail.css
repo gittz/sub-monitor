@@ -1,0 +1,4 @@
+#m-add-status { font-size:12px; line-height:1.6; margin:0 0 10px; overflow-wrap:anywhere; }
+#m-add-status[hidden] { display:none; }
+.mail-candidate-dialog label { display:block; margin:12px 0; font-size:12px; }
+.mail-candidate-dialog input { display:block; box-sizing:border-box; width:100%; margin-top:5px; padding:9px; border:1px solid var(--border); border-radius:6px; background:var(--bg); color:var(--fg); }

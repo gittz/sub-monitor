@@ -609,10 +609,12 @@
   .ad-money select { flex:none; width:96px; padding:0 6px; border:1px solid var(--ad-border); border-radius:8px; background:var(--bg); color:var(--fg); font-size:13px; }
   .ad-money input { flex:1; min-width:0; }
 </style>
+  <link rel="stylesheet" href="popup-header.css">
+  <link rel="stylesheet" href="popup-mail.css">
 </head>
 <body>
   <header class="ih">
-    <span class="ih-logo"><svg viewBox="0 0 40 32" width="30" height="24" aria-hidden="true"><defs><linearGradient id="lga" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3b82f6"/><stop offset="1" stop-color="#1d4ed8"/></linearGradient></defs><rect x="6" y="2" width="30" height="20" rx="4" transform="rotate(-8 21 12)" fill="#93c5fd"/><rect x="2" y="7" width="32" height="22" rx="5" fill="url(#lga)"/><rect x="2" y="12" width="32" height="3.2" fill="#1e40af" opacity=".45"/><path d="M10 20.5q2 2 4 0M19 20.5q2 2 4 0" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round"/><circle cx="33" cy="25" r="4.2" fill="#fb923c" stroke="#fff" stroke-width="1.6"/></svg></span><b class="ih-name">IdleSubs</b><span class="ih-sub">闲置订阅</span>
+    <a class="ih-home" href="https://idlesubs.com/" target="_blank" rel="noopener noreferrer" aria-label="打开 IdleSubs 官网" title="打开官网"><span class="ih-logo"><svg viewBox="0 0 40 32" width="30" height="24" aria-hidden="true"><defs><linearGradient id="lga" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3b82f6"/><stop offset="1" stop-color="#1d4ed8"/></linearGradient></defs><rect x="6" y="2" width="30" height="20" rx="4" transform="rotate(-8 21 12)" fill="#93c5fd"/><rect x="2" y="7" width="32" height="22" rx="5" fill="url(#lga)"/><rect x="2" y="12" width="32" height="3.2" fill="#1e40af" opacity=".45"/><path d="M10 20.5q2 2 4 0M19 20.5q2 2 4 0" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round"/><circle cx="33" cy="25" r="4.2" fill="#fb923c" stroke="#fff" stroke-width="1.6"/></svg></span><b class="ih-name">IdleSubs</b></a><span class="ih-sub">闲置订阅</span>
     <span id="lastCheck"></span>
     <span id="acct"></span>
   </header>
@@ -692,6 +694,7 @@
         <label class="chk"><input type="checkbox" id="m-show"> 扫描时显示 Gmail 标签页（排查问题用）</label>
       </details>
       <div id="m-summary"></div>
+      <div id="m-add-status" role="status" hidden></div>
       <div class="ad-list" id="m-list"></div>
       <div class="ad-foot" id="m-hidden"></div>
     </section>
@@ -805,6 +808,9 @@
   <script src="catalog.js"></script>
   <script src="auth.js"></script>
   <script src="sync.js"></script>
+  <script src="popup-account.js"></script>
+  <script src="popup-mail-dialog.js"></script>
+  <script src="popup-mail.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

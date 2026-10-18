@@ -1,0 +1,18 @@
+/* 顶部官网入口及账号反馈菜单，随侧边栏宽度收缩。 */
+.ih-home { display:inline-flex; align-items:center; gap:8px; color:var(--fg); text-decoration:none; flex-shrink:0; border-radius:6px; }
+.ih-home:hover { color:var(--accent); }
+.ih-home:focus-visible, #acct button:focus-visible, #acct a:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+header #acct { position:relative; }
+#accountMenuButton { display:inline-flex; align-items:center; justify-content:center; gap:5px; min-width:38px; min-height:30px; padding:3px 5px; border:1px solid transparent; background:transparent; color:var(--fg); border-radius:8px; }
+#accountMenuButton:hover, #accountMenuButton[aria-expanded="true"] { background:var(--border); }
+.account-menu-more { font-weight:700; font-size:20px; line-height:16px; }
+.account-menu-chevron { font-size:13px; color:var(--muted); }
+.account-menu-panel { position:absolute; right:0; top:calc(100% + 8px); z-index:950; width:250px; max-width:calc(100vw - 32px); padding:6px; border:1px solid var(--border); border-radius:12px; background:var(--bg); box-shadow:0 8px 24px #0002; white-space:normal; }
+.account-menu-panel[hidden], #acct [hidden] { display:none; }
+#accountMenuPanel .account-menu-item { display:flex; align-items:center; justify-content:space-between; box-sizing:border-box; width:100%; margin:0; padding:10px; border:0; border-radius:7px; background:transparent; color:var(--fg); font:inherit; font-size:13px; text-align:left; text-decoration:none; cursor:pointer; }
+#accountMenuPanel .account-menu-item:hover { background:var(--border); }
+.account-menu-identity { padding:9px 10px; margin-bottom:4px; border-bottom:1px solid var(--border); color:var(--muted); font-size:12px; overflow-wrap:anywhere; }
+.feedback-address { display:block; padding:0 10px 5px; font-size:12px; color:var(--muted); user-select:text; overflow-wrap:anywhere; }
+.feedback-copy-status { display:block; padding:0 10px; font-size:12px; color:var(--muted); }
+.feedback-copy-status:empty { display:none; }
+#accountMenuPanel .account-signout { border-top:1px solid var(--border); margin-top:5px; border-radius:0 0 7px 7px; }
