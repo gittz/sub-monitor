@@ -289,9 +289,8 @@ setTimeout(async () => {
   };
   w2.close = () => { w2.__closed = 1; };
   w2.Element.prototype.scrollIntoView = function () {};
-  for (const f of ["lib.js", "catalog.js", "auth.js", "sync.js", "popup-account.js", "popup-mail-dialog.js", "popup-mail.js", "popup.js"]) w2.eval(fs.readFileSync(path.join(dir, f), "utf8"));
   Object.defineProperty(w2.navigator, "language", { value: "zh-CN" });
-  for (const f of ["i18n.js", "i18n-en.js", "lib.js", "catalog.js", "auth.js", "sync.js", "popup.js"]) w2.eval(fs.readFileSync(path.join(dir, f), "utf8"));
+  for (const f of ["i18n.js", "i18n-en.js", "lib.js", "catalog.js", "auth.js", "sync.js", "popup-account.js", "popup-mail-dialog.js", "popup-mail.js", "popup.js"]) w2.eval(fs.readFileSync(path.join(dir, f), "utf8"));
   await new Promise(r => setTimeout(r, 60));
   const dlg2 = w2.document.querySelector(".dlg-mask");
   t("授权小窗口：说明要授权什么，有「继续授权」", !!dlg2 && /Netflix/.test(dlg2.textContent) && /继续授权/.test(dlg2.textContent) && !w2.document.getElementById("view-add").hidden);
@@ -313,7 +312,7 @@ setTimeout(async () => {
   };
   w3.Element.prototype.scrollIntoView = function () {};
   Object.defineProperty(w3.navigator, "language", { value: "en-US" });
-  for (const f of ["i18n.js", "i18n-en.js", "lib.js", "catalog.js", "auth.js", "sync.js", "popup.js"]) w3.eval(fs.readFileSync(path.join(dir, f), "utf8"));
+  for (const f of ["i18n.js", "i18n-en.js", "lib.js", "catalog.js", "auth.js", "sync.js", "popup-account.js", "popup-mail-dialog.js", "popup-mail.js", "popup.js"]) w3.eval(fs.readFileSync(path.join(dir, f), "utf8"));
   await new Promise(r => setTimeout(r, 80));
   const txt3 = w3.document.body.textContent;
   t("英文浏览器：界面默认英文，没有残留中文", w3.I18N.getLang() === "en" && /My subscriptions/.test(txt3) && w3.document.documentElement.lang === "en" &&

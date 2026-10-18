@@ -43,6 +43,8 @@ async function createPopup(test, overrides = {}, options = {}) {
     subLimit: 5, guestLimit: 5, auth: null, googleLogin: true, ...overrides };
   window.chrome = chromeFixture(store, messages, options);
   window.Element.prototype.scrollIntoView = function () {};
+  // 用例按中文界面写（浏览器语言非中文时界面默认英文）
+  Object.defineProperty(window.navigator, "language", { value: options.language || "zh-CN" });
   Object.defineProperty(window.navigator, "clipboard", { value: {
     writeText: async text => { if (options.clipboardError) throw new Error("Clipboard denied"); copied.push(text); }
   } });

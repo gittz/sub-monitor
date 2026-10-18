@@ -71,8 +71,7 @@ function scanSummary(ms) {
   } else if (ms && ms.status === "done") {
     const n = (ms.candidates || []).length;
     summary = `<div class="diag ${n ? "good" : ""}">
-      ${ms.email ? "账号 <b>" + integration.esc(ms.email) + "</b>：" : ""}读了 ${ms.pagesRead || 0} 页、${ms.rowsRead} 封搜索结果，
-      其中 ${ms.billingRows} 封像收据或续费通知，归并出 <b>${n}</b> 个候选订阅。
+      ${ms.email ? T("账号 {e}：", { e: "<b>" + integration.esc(ms.email) + "</b>" }) : ""}${T("读了 {p} 页、{r} 封搜索结果，其中 {b} 封像收据或续费通知，归并出 {n} 个候选订阅。", { p: ms.pagesRead || 0, r: ms.rowsRead, b: ms.billingRows, n: "<b>" + n + "</b>" })}
       ${ms.warn === "timeout" ? "<br>⚠ 有页面加载超时，结果可能不全。" : ""}
       ${ms.warn === "limit" ? "<br>⚠ 达到了读取上限，更早的邮件没读到。可以调大「最多读取」再扫。" : ""}
       ${ms.failedReads ? `<br>⚠ 有 ${ms.failedReads} 封读取失败，已跳过。` : ""}
