@@ -508,10 +508,7 @@ const LLM_NAMES = { claude: "Claude", chatgpt: "ChatGPT" };
 const limitText = () => `未登录最多添加 ${state.guestLimit || AuthLib.GUEST_SUB_LIMIT} 个订阅，已经满了。<a href="#" data-login="1">登录 / 注册</a>后不限数量。`;
 function atLimit() { return state.subLimit != null && state.subs.length >= state.subLimit; }
 function renderAccount() {
-  const a = state.auth;
-  $("acct").innerHTML = a && a.user
-    ? `<span class="avatar" title="${esc(a.user.email)}">${esc(((a.user.name || a.user.email || "?").trim()[0] || "?").toUpperCase())}</span><span class="acct-mail" title="${esc(a.user.email)}">${esc(a.user.email)}</span><a href="#" id="signOut">退出</a>`
-    : `<a href="#" data-login="1">登录</a>`;
+  PopupAccount.render($("acct"), state.auth);
   const lim = state.subLimit;
   $("cnt").textContent = lim != null ? `${state.subs.length}/${lim}` : state.subs.length;
   $("limitBar").hidden = !atLimit();
@@ -988,7 +985,7 @@ async function refresh() {
     renderSyncBar();
     renderLog();
     showGrantResult();
-    renderMail();
+    PopupMail.render();
   }
 }
 
@@ -1293,6 +1290,8 @@ $("clearLog").addEventListener("click", async () => {
   }
 });
 
+PopupMail.initialize({ getState: () => state, esc, fmtDate, catalogFor, addFromCatalog,
+  atLimit, limitText, send, refresh, requestOrigins });
 resetForm();
 refresh().then(() => { if (GRANT_WINDOW) runGrantWindow(); });
 
