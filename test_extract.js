@@ -28,8 +28,7 @@ function loadBackground(fakeLocationHref, fakeDoc) {
   };
   ctx.globalThis = ctx;
   vm.createContext(ctx);
-  vm.runInContext(fs.readFileSync(path.join(__dirname, "lib.js"), "utf8"), ctx);
-  vm.runInContext(fs.readFileSync(path.join(__dirname, "background.js"), "utf8"), ctx);
+  for (const f of ["i18n.js", "i18n-en.js", "lib.js", "background.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, f), "utf8"), ctx);
   return ctx;
 }
 

@@ -19,9 +19,9 @@ function boot(pages, opts) {
     alarms: { onAlarm: ev("c"), create() {} }, runtime: { onInstalled: ev("d"), onStartup: ev("e"), onMessage: ev("msg") },
     notifications: { onClicked: ev("f"), create: (id, o) => notes.push([id, o]) }
   };
-  const ctx = { console, chrome, setTimeout: (f) => setTimeout(f, 0), clearTimeout, Promise, Date, JSON, Math, Set, Map, URL, URLSearchParams, importScripts: () => {} };
+  const ctx = { console, chrome, fetch: opts.fetch, setTimeout: (f) => setTimeout(f, 0), clearTimeout, Promise, Date, JSON, Math, Set, Map, URL, URLSearchParams, importScripts: () => {} };
   ctx.globalThis = ctx; vm.createContext(ctx);
-  for (const f of ["lib.js", "mailscan.js", "llm.js", "catalog.js", "history.js", "auth.js", "sync.js", "background.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, f), "utf8"), ctx);
+  for (const f of ["i18n.js", "i18n-en.js", "lib.js", "mailscan.js", "llm.js", "catalog.js", "history.js", "auth.js", "sync.js", "background.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, f), "utf8"), ctx);
   const send = (m) => new Promise(r => listeners.msg(m, {}, r));
   return { store, log, notes, send };
 }
@@ -76,6 +76,22 @@ const t = (n, c) => { console.log((c ? "  ✓ " : "  ✗ ") + n); if (!c) proces
   B = boot({}, { denied: ["https://claude.ai/*"] });
   r = await B.send({ type: "LLM_QUICK_ADD", kind: "claude" });
   t("没授权 → 不添加，返回原因", !r.ok && r.reason === "no_permission" && B.store.subs.length === 0);
+
+  // 后台直接调接口读到了：不开任何网页
+  {
+    const J = (st, body) => ({ status: st, ok: st < 300, headers: { get: () => "application/json" }, json: async () => body });
+    const B2 = boot({}, { fetch: async (url) => {
+      if (url === "https://claude.ai/api/organizations") return J(200, [{ uuid: "o1", capabilities: ["chat", "claude_pro"], rate_limit_tier: "default_claude_pro" }]);
+      if (url.indexOf("chat_conversations") >= 0) return J(200, [{ updated_at: iso(1) }]);
+      return J(404, {});
+    } });
+    const r2 = await B2.send({ type: "LLM_QUICK_ADD", kind: "claude" });
+    t("后台直接调接口读到套餐：不打开网页", r2.ok && B2.store.subs[0].llm.plan.key === "pro" && !B2.log.some(x => x[0] === "create" || x[0] === "exec"), B2.log);
+    // 直接读不到（比如没登录、或接口拒绝）：退回打开网页读，由网页判断是否登录
+    const B3 = boot({ claude: { kind: "claude", ok: false, loggedOut: true, plan: null, timestamps: [], shapes: {} } }, { fetch: async () => J(401, {}) });
+    const r3 = await B3.send({ type: "LLM_QUICK_ADD", kind: "claude" });
+    t("直接读不到：退回打开网页确认，没登录就提示去登录", !r3.ok && r3.reason === "logged_out" && B3.log.some(x => x[0] === "exec"), r3);
+  }
 
   // 诊断
   B = boot({ claude: Object.assign({ shapes: { organizations: [{ uuid: "string" }] } }, claudePage) });

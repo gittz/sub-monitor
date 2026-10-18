@@ -36,6 +36,13 @@ check("空模式不匹配", !L.hostMatches("netflix.com", ""));
 console.log("== parseLabelToTs ==");
 const todayTs = new Date(2026, 8, 17).getTime();
 check("今天", L.parseLabelToTs("今天", NOW) === todayTs);
+{
+  const sat = new Date(2026, 9, 17, 15).getTime(), satDay = new Date(2026, 9, 17).getTime();   // 2026-10-17 是星期六
+  check("星期一 → 本周一（5 天前）", L.parseLabelToTs("星期一", sat) === satDay - 5 * 86400000);
+  check("周五 → 昨天之前的那个周五", L.parseLabelToTs("周五", sat) === satDay - 1 * 86400000);
+  check("和今天同一个星期几 → 7 天前", L.parseLabelToTs("星期六", sat) === satDay - 7 * 86400000);
+  check("英文 Monday", L.parseLabelToTs("Monday", sat) === satDay - 5 * 86400000);
+}
 check("Today 大小写不敏感", L.parseLabelToTs("TODAY", NOW) === todayTs);
 check("昨天", L.parseLabelToTs("昨天", NOW) === todayTs - DAY);
 check("Yesterday", L.parseLabelToTs("Yesterday", NOW) === todayTs - DAY);
@@ -135,8 +142,8 @@ function checkNoScopeConflict(name, files) {
     check(name + " 无重复声明 —— " + e.message, false);
   }
 }
-checkNoScopeConflict("lib.js + mailscan.js + llm.js + catalog.js + history.js + auth.js + background.js（service worker）", ["lib.js", "mailscan.js", "llm.js", "catalog.js", "history.js", "auth.js", "sync.js", "background.js"]);
-checkNoScopeConflict("lib.js + catalog.js + auth.js + popup.js（弹窗页）", ["lib.js", "catalog.js", "auth.js", "sync.js", "popup.js"]);
+checkNoScopeConflict("i18n + lib.js + mailscan.js + llm.js + catalog.js + history.js + auth.js + background.js（service worker）", ["i18n.js", "i18n-en.js", "lib.js", "mailscan.js", "llm.js", "catalog.js", "history.js", "auth.js", "sync.js", "background.js"]);
+checkNoScopeConflict("i18n + lib.js + catalog.js + auth.js + popup.js（弹窗页）", ["i18n.js", "i18n-en.js", "lib.js", "catalog.js", "auth.js", "sync.js", "popup.js"]);
 
 console.log(`\n结果：${pass} 通过 / ${fail} 失败`);
 process.exit(fail ? 1 : 0);

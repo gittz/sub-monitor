@@ -20,9 +20,9 @@ function boot(fetchImpl) {
   const timers = [];
   const ctx = { console, chrome, fetch: fetchImpl, setTimeout: (f, ms) => { const h = realTimeout(f, Math.min(ms || 0, 30)); timers.push(h); return h; }, clearTimeout, Promise, Date, JSON, Math, Set, Map, URL, URLSearchParams, RegExp, TextEncoder, importScripts: () => {} };
   ctx.globalThis = ctx; ctx.crypto = require("crypto").webcrypto; vm.createContext(ctx);
-  for (const f of ["lib.js", "mailscan.js", "llm.js", "catalog.js", "history.js", "auth.js", "sync.js", "background.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, f), "utf8"), ctx);
+  for (const f of ["i18n.js", "i18n-en.js", "lib.js", "mailscan.js", "llm.js", "catalog.js", "history.js", "auth.js", "sync.js", "background.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, f), "utf8"), ctx);
   const send = (m) => new Promise(r => listeners.msg[0](m, {}, r));
-  return { store, send, listeners };
+  return { store, send, listeners, ctx };
 }
 const t = (n, c, x) => { console.log((c ? "  ✓ " : "  ✗ ") + n + (c || x === undefined ? "" : "  → " + JSON.stringify(x))); if (!c) process.exitCode = 1; };
 const wait = (ms) => new Promise(r => realTimeout(r, ms));
@@ -64,13 +64,22 @@ async function suite(label, fetchImpl, email) {
   let r = await A.send({ type: "SYNC_SET", enabled: true });
   t("没登录不能开同步", !r.ok && r.reason === "logged_out");
   await A.send({ type: "AUTH_SIGN_UP", email, password: "correct-horse-9" });
-  r = await A.send({ type: "SYNC_SET", enabled: true });
-  t("设备 A 开启同步：上传 3 个订阅", r.ok && r.pushed && r.count === 3, r);
+  await wait(150);
+  t("设备 A 第一次登录：自动开启云端同步并上传 3 个订阅", A.store.sync && A.store.sync.enabled && A.store.sync.lastSyncAt && !A.store.sync.userSet, A.store.sync);
+  r = await A.send({ type: "SYNC_NOW" });
+  t("云端已经有这 3 个订阅（不用再上传）", r.ok && r.pushed === false && r.count === 3, r);
   A.store.subs[0].sig = { ids: ["secret-video-id"] }; A.store.subs[0].hist = { days30: 9 };
 
+  const checked = [];
+  B.ctx.runCheck = async (ids) => { checked.push(ids); };   // 记下同步后触发了哪些检查
   await B.send({ type: "AUTH_SIGN_IN", email, password: "correct-horse-9" });
   r = await B.send({ type: "SYNC_SET", enabled: true });
   t("设备 B 登录并开启：从云端恢复 3 个订阅", r.ok && B.store.subs.length === 3 && B.store.subs[2].price === 12, r);
+  await wait(80);
+  t("新设备第一次同步：只对云端带来的这 3 个订阅各检查一次", checked.length >= 1 && checked[0].length === 3 && checked.every(c => Array.isArray(c) && c.length), checked);
+  const nCheck = checked.length;
+  await B.send({ type: "SYNC_NOW" }); await wait(80);
+  t("没有新订阅的同步不触发检查", checked.length === nCheck);
 
   await B.send({ type: "SAVE_SUB", sub: Object.assign({}, B.store.subs[1], { price: 99 }) });
   await B.send({ type: "SAVE_SUB", sub: sub("b9", "Spotify") });
@@ -142,6 +151,10 @@ async function suite(label, fetchImpl, email) {
   t("弹窗能看到同步状态", st.sync.enabled && st.sync.lastSyncAt > 0 && !st.sync.lastError);
   r = await A.send({ type: "SYNC_SET", enabled: false, deleteCloud: true });
   t("关闭同步并删除云端数据；本机订阅保留", r.ok && r.cloudDeleted && A.store.subs.length >= 4);
+  await A.send({ type: "AUTH_SIGN_OUT" });
+  await A.send({ type: "AUTH_SIGN_IN", email, password: "correct-horse-9" });
+  await wait(100);
+  t("自己关掉过同步的，再登录不会自动打开", A.store.sync && !A.store.sync.enabled);
   r = await B.send({ type: "SYNC_NOW" });
   t("云端删掉后，B 再同步时把自己的数据重新传上去（不会把 B 清空）", r.ok && B.store.subs.length >= 4);
 }

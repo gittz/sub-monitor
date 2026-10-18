@@ -1,0 +1,5 @@
+{
+  "appName": { "message": "IdleSubs - Idle Subscription Tracker" },
+  "appDesc": { "message": "Tracks whether the subscriptions you pay for are still in use, and reminds you to cancel the ones sitting idle before they renew." },
+  "actionTitle": { "message": "Open the IdleSubs side panel" }
+}

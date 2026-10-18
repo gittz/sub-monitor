@@ -78,6 +78,7 @@
       plans: [[/星钻\s*VIP|星钻会员/, "星钻VIP", true], [/白金\s*VIP|白金会员/, "白金VIP", true], [/黄金\s*VIP|黄金会员/, "黄金VIP", true], [/学生\s*VIP|学生会员/, "学生VIP", true]],
       free: /开通会员|立即开通|您还不是/ },
     { id: "tencent-video", name: "腾讯视频", cat: "cn", domains: ["v.qq.com", "film.qq.com"], accountUrl: "https://film.qq.com/vip/my/", currency: "¥",
+      activity: "tencent",
       plans: [[/超级影视\s*VIP|SVIP/i, "超级影视VIP", true], [/VIP会员|腾讯视频VIP|好莱坞会员/i, "VIP", true]],
       free: /开通VIP|立即开通|您还不是/ },
     { id: "youku", name: "优酷", cat: "cn", domains: ["youku.com"], accountUrl: "https://vip.youku.com/", currency: "¥",
@@ -247,7 +248,7 @@
   function accountAdvice(p, account, idle) {
     if (!account) return null;
     if (account.status === "logged_out") return { level: "wait", text: `本浏览器没有登录 ${p.name}，读不到套餐。登录后点「检查」。` };
-    if (!account.plan) return { level: "wait", text: `打开了账户页，但没认出套餐。可以点「诊断」看看读到了什么。` };
+    if (!account.plan) return { level: "wait", text: `打开了账户页，但没认出套餐。可以稍后点「检查」再试一次。` };
     if (!account.plan.paid) return { level: "none", text: "当前没有付费订阅。" };
     const st = account.storage;
     if (idle && idle.state === "idle") return { level: "cancel", text: `已经 ${idle.days} 天没用过了，还需要 ${account.plan.label} 吗？` };

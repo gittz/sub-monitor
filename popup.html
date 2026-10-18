@@ -451,6 +451,14 @@
                background:var(--warm-soft); color:#4b5563; font-size:12.5px; text-align:left; cursor:pointer; }
   .sv-banner:hover { background:#f6ead6; }
   .sv-banner span { flex:1; }
+  .sv-watched { display:flex; align-items:baseline; gap:8px; margin-top:8px; padding:8px 10px; border-radius:8px; background:var(--ad-soft, #f6f6f4); font-size:12px; min-width:0; }
+  .sv-watched span { flex:none; color:var(--muted); }
+  .sv-watched b { flex:1; min-width:0; font-weight:600; color:var(--fg); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .sv-watched small { flex:none; color:var(--muted); font-size:11.5px; }
+  .sv-watched b.muted { font-weight:400; color:var(--muted); }
+  .sv-histlink { flex:none; padding-left:10px; margin-left:2px; border-left:1px solid var(--border); color:var(--accent); font-size:11.5px; text-decoration:none; white-space:nowrap; }
+  .sv-histlink:hover { text-decoration:underline; }
+  .sv-banner span { white-space:normal; text-align:left; min-width:0; }
   .sv-banner[hidden] { display:none; }
   .sv-banner svg { flex:none; color:#a8784a; }
   .sv-banner.on { box-shadow:inset 0 0 0 1.5px #e3c79c; }
@@ -608,6 +616,10 @@
   .ad-money { display:flex; gap:6px; }
   .ad-money select { flex:none; width:96px; padding:0 6px; border:1px solid var(--ad-border); border-radius:8px; background:var(--bg); color:var(--fg); font-size:13px; }
   .ad-money input { flex:1; min-width:0; }
+  .sv-metrics small { display:block; margin-top:1px; font-size:10.5px; color:var(--muted); font-weight:400; }
+  /* 中 / EN 切换 */
+  .ih-lang { flex:none; height:24px; min-width:30px; padding:0 7px; border:1px solid var(--border); border-radius:6px; background:var(--bg); color:var(--muted); font-size:11.5px; font-weight:600; cursor:pointer; }
+  .ih-lang:hover { color:var(--fg); background:var(--hover); }
 </style>
   <link rel="stylesheet" href="popup-header.css">
   <link rel="stylesheet" href="popup-mail.css">
@@ -616,6 +628,7 @@
   <header class="ih">
     <a class="ih-home" href="https://idlesubs.com/" target="_blank" rel="noopener noreferrer" aria-label="打开 IdleSubs 官网" title="打开官网"><span class="ih-logo"><svg viewBox="0 0 40 32" width="30" height="24" aria-hidden="true"><defs><linearGradient id="lga" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3b82f6"/><stop offset="1" stop-color="#1d4ed8"/></linearGradient></defs><rect x="6" y="2" width="30" height="20" rx="4" transform="rotate(-8 21 12)" fill="#93c5fd"/><rect x="2" y="7" width="32" height="22" rx="5" fill="url(#lga)"/><rect x="2" y="12" width="32" height="3.2" fill="#1e40af" opacity=".45"/><path d="M10 20.5q2 2 4 0M19 20.5q2 2 4 0" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round"/><circle cx="33" cy="25" r="4.2" fill="#fb923c" stroke="#fff" stroke-width="1.6"/></svg></span><b class="ih-name">IdleSubs</b></a><span class="ih-sub">闲置订阅</span>
     <span id="lastCheck"></span>
+    <button type="button" class="ih-lang" id="langToggle" title="切换到英文">EN</button>
     <span id="acct"></span>
   </header>
 
@@ -646,7 +659,7 @@
     <div class="limitbar sv-callout" id="limitBar" hidden></div>
     <div class="histbar sv-callout" id="syncBar" hidden></div>
     <div class="sv-table">
-      <div class="sv-thead"><span class="sv-th-prod">订阅产品<button type="button" class="sv-sortbtn" id="sortToggle" title="调整订阅的显示顺序"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 16 4 4 4-4M7 20V4M21 8l-4-4-4 4M17 4v16"/></svg><span>排序</span></button></span><span class="sv-th-fee">费用 / 月</span><span>最近使用</span><span>使用状态</span></div>
+      <div class="sv-thead"><span class="sv-th-prod">订阅产品<button type="button" class="sv-sortbtn" id="sortToggle" title="调整订阅的显示顺序"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 16 4 4 4-4M7 20V4M21 8l-4-4-4 4M17 4v16"/></svg><span>排序</span></button></span><span class="sv-th-fee">费用 / 月</span><span title="判断闲不闲置的依据：视频看观看记录、大模型看对话记录、其它看在本浏览器打开网站的时间">最近使用</span><span>使用状态</span></div>
       <div class="sv-sortbar" id="sortBar" hidden><span>按住左边的 <b>⋮⋮</b> 拖动，或用右边的箭头调整顺序</span><button type="button" class="sv-sortreset" id="sortReset" hidden title="不再用你排的顺序，改回按使用状态自动排（闲置的在前）">恢复自动排序</button><button type="button" class="sv-sortdone" id="sortDone">完成</button></div>
       <div class="sv-filter" id="svFilter" hidden>只看值得再看一眼的订阅 · <a href="#" id="svFilterClear">显示全部</a></div>
       <div id="subList"></div>
@@ -804,6 +817,8 @@
     <div class="list" id="logList"></div>
   </div>
 
+  <script src="i18n.js"></script>
+  <script src="i18n-en.js"></script>
   <script src="lib.js"></script>
   <script src="catalog.js"></script>
   <script src="auth.js"></script>

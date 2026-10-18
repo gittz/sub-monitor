@@ -30,8 +30,11 @@
   // ---------- 注入网页执行：读取套餐 / 对话时间 / 用量 ----------
   async function llmReadPage(opts) {
     const o = opts || {};
+    // base：在插件后台直接请求时传网站地址（如 https://claude.ai）；在网页里运行时留空，用相对地址
+    const base = o.base || "";
     const out = { kind: o.kind, ok: false, loggedOut: null, error: null, plan: null, timestamps: [],
-                  convCount: 0, usage: null, renew: null, shapes: {}, pageUrl: String(location.href) };
+                  convCount: 0, usage: null, renew: null, shapes: {}, via: base ? "direct" : "page",
+                  pageUrl: base || (typeof location !== "undefined" ? String(location.href) : "") };
 
     // 只保留结构：字段名和类型。少数「套餐类」字段保留取值，方便诊断，其余一律不带值。
     const KEEP = /^(plan_type|planType|rate_limit_tier|capabilities|billing_type|subscription_plan|purchase_origin_platform|structure|has_active_subscription|will_renew|raven_type|utilization)$/;
@@ -55,7 +58,7 @@
     async function getJson(label, url, headers) {
       let res;
       try {
-        res = await fetch(url, { credentials: "include", headers: Object.assign({ accept: "application/json" }, headers || {}) });
+        res = await fetch(base + url, { credentials: "include", headers: Object.assign({ accept: "application/json" }, headers || {}) });
       } catch (e) { out.shapes[label] = "network error"; return null; }
       const ct = String(res.headers.get("content-type") || "");
       if (res.status === 401) { out.shapes[label] = "HTTP 401"; out.loggedOut = true; return null; }

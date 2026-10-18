@@ -1,6 +1,18 @@
 // popup.html 先加载 lib.js，与本文件共享全局作用域，
 // computeStatus / wastedPerMonth / normalizeDomain 可直接用（同样不要再解构声明一遍）。
 const $ = (id) => document.getElementById(id);
+// 界面语言：英文模式下自动把界面上的中文换成英文（i18n.js）
+if (typeof I18N !== "undefined") {
+  I18N.start(document);
+  // 右上角「中 / EN」：显示的是另一种语言，点一下切过去（记住选择，优先于浏览器语言）
+  const lt = document.getElementById("langToggle");
+  if (lt) {
+    const en = I18N.getLang() === "en";
+    lt.textContent = en ? "中" : "EN";
+    lt.title = en ? "切换到中文" : "切换到英文";
+    lt.addEventListener("click", () => { I18N.setLang(en ? "zh" : "en"); location.reload(); });
+  }
+}
 
 let state = { subs: [], records: [], lastCheck: null, paused: false, providers: [], mailScan: null, mailIgnored: [], mailPrefs: {} };
 
@@ -165,6 +177,9 @@ function subCaption(s) {
   const a = s.account;
   // 网盘：空间用量
   if (p && p.storage && a && a.storage) return `空间 ${a.storage.label} · ${a.storage.pct}%`;
+  // 有观看记录片名的（腾讯视频）：套餐 + 最近看的片名
+  const wt = s.watchTitle && s.watchTitle.title && s.lastWatched && s.watchTitle.at === s.lastWatched ? s.watchTitle.title : "";
+  if (wt) return (p && a && a.plan && (a.status === "ok" || !a.status) ? a.plan.label + " · " : "") + "最近看 " + wt;
   // 其它收录服务：套餐 + 续费日
   if (p && a && a.plan && (a.status === "ok" || !a.status)) return a.plan.label + (a.renewAt ? ` · ${md(a.renewAt)} 续费` : "");
   if (p) return SV_CAT[p.cat] || "";
@@ -198,7 +213,7 @@ function renderSubs() {
 
   // 信号中断时给出具体该怎么处理
   const FIX = {
-    logged_out: "这个浏览器没登录，或登录已过期，所以读不到活动记录。<b>这不代表你没在用</b>，恢复前不会给出退订建议。",
+    logged_out: "这个浏览器没登录，或登录已过期，所以读不到你账号的观看记录（没登录时看到的只是这台电脑上的游客记录，不作数）。<b>这不代表你没在用</b>，恢复前不会给出退订建议。登录后点「检查」即可恢复。",
     history_off: "该服务的历史记录处于关闭 / 暂停状态，无法据此判断使用情况。可以去打开历史记录，或把这条订阅改成其它判断方式。",
     read_failed: "读取活动记录失败（可能是网络问题或页面结构变化）。恢复前不会给出退订建议。",
     no_permission: "还没授权插件读取这个网站。点「去处理」授权后会立即重新读取。"
@@ -230,13 +245,12 @@ function renderSubs() {
     else if (s.lastUsedFloor) used = "90 天+未使用";
     else used = s.lastUsed ? fmtShort(s.lastUsed) : "—";
     const vs = visitStats(s.visitLog, now);
-    const modeTxt = isLlm ? "看对话记录" : s.mode === "activity" ? "看观看记录 + 浏览器访问" : s.catalogId ? "看账户页 + 浏览器访问" : s.mode === "browser" ? "未收录 · 看浏览器访问" : "电视 / 手机，不参与判断";
 
     let fix = "";
     if (st.state === "signal_lost") {
       const since = st.days > 0 ? `已 ${st.days} 天读不到。` : "";
       fix = `<div class="fixit">${since}${FIX[st.reason] || FIX.read_failed}
-        <div><button data-fix="${esc(s.id)}">去处理</button></div></div>`;
+        <div><button data-fix="${esc(s.id)}">${st.reason === "logged_out" ? "去登录" : "去处理"}</button></div></div>`;
     }
     const busy = checking.has(s.id), open = openRows.has(s.id);
     return `<div class="sv-row st-${st.state}${open ? " open" : ""}" data-id="${esc(s.id)}">
@@ -248,11 +262,9 @@ function renderSubs() {
       </div>
       <div class="sv-detail">
         <div class="sv-metrics">
-          <div><span>判断方式</span><b title="${esc(modeTxt)}">${esc(modeTxt.replace(/^看/, ""))}</b></div>
-          <div><span>最近访问</span><b>${esc(vs.last ? fmtShort(vs.last) : "无记录")}</b></div>
-          <div><span>近 7 天</span><b>${vs.d7} 次</b></div>
-          <div><span>近 30 天</span><b>${vs.d30} 次</b></div>
+          ${usageCells(s, vs, isLlm)}
         </div>
+        ${watchTitleHtml(s)}
         ${s.llm && st.state !== "signal_lost" ? llmHtml(s) : ""}
         ${s.catalogId && SubCatalog.BY_ID[s.catalogId] && !SubCatalog.BY_ID[s.catalogId].special ? acctHtml(s, st) : ""}
         ${fix}
@@ -365,6 +377,43 @@ $("subList").addEventListener("keydown", async (e) => {
   if (g) g.focus();
 });
 $("svFilterClear").addEventListener("click", (e) => { e.preventDefault(); svFilterIdle = false; renderSubs(); });
+// 详情里的四格，把两件事分开：
+//   最近使用 = 判断闲不闲置的依据（视频看观看记录、大模型看对话记录、其它看浏览器访问），列表里「最近使用」那一列就是它；
+//   最近访问 / 近 7 天 / 近 30 天 = 在这个浏览器里打开网站的时间和次数，只是参考，打开网站不一定等于在用。
+function usageBasis(s, isLlm) {
+  if (isLlm) return { text: "按对话记录", tip: "最近一次发起对话的时间（手机上的对话也算），只打开页面不算" };
+  if (s.mode === "activity") {
+    return s.sig && s.signal && s.signal.ok !== false
+      ? { text: "按观看记录", tip: "观看记录里最近一次观看的日期（电视、手机上用同一账号看的也算）" }
+      : { text: "按浏览器访问", tip: "观看记录暂时读不到，先按在本浏览器打开网站的时间判断" };
+  }
+  if (s.mode === "browser") return { text: "按浏览器访问", tip: "在本浏览器打开这个网站的时间" };
+  return { text: "不参与判断", tip: "" };
+}
+function usageCells(s, vs, isLlm) {
+  const b = usageBasis(s, isLlm);
+  const used = s.lastUsedFloor ? "90 天+" : s.lastUsed ? fmtShort(s.lastUsed) : "—";
+  return `<div title="${esc(b.tip)}"><span>最近使用</span><b>${esc(used)}</b><small>${esc(b.text)}</small></div>
+    <div title="在本浏览器里打开这个网站的最近一次时间（打开不一定等于在用）"><span>最近访问</span><b>${esc(vs.last ? fmtShort(vs.last) : "无记录")}</b><small>打开网站</small></div>
+    <div><span>近 7 天访问</span><b>${vs.d7} 次</b></div><div><span>近 30 天访问</span><b>${vs.d30} 次</b></div>`;
+}
+// 观看记录里最近看的片名（只有能读到片名的服务才有，比如腾讯视频）
+// 观看记录类订阅（视频）：「最近看的」一行 + 右侧跳到该服务观看记录页的链接。
+// 读得到片名就显示片名；读不到具体日期（比如优酷第一组是「更早」）时也保留这一行，方便用户自己去看
+function histUrlOf(s) {
+  if (s.mode !== "activity" || !s.provider) return "";
+  const p = (state.providers || []).find(x => x.key === s.provider);
+  if (!p || p.strategy === "llm") return "";
+  return s.activityUrl || p.url || "";
+}
+function watchTitleHtml(s) {
+  const w = s.watchTitle, url = histUrlOf(s);
+  const ok = w && w.title && s.lastWatched && w.at === s.lastWatched;
+  if (!ok && !url) return "";
+  const link = url ? `<a href="#" class="sv-histlink" data-hist="${esc(s.id)}" title="在新标签页打开 ${esc(s.name)} 的观看记录">观看记录 ↗</a>` : "";
+  if (!ok) return `<div class="sv-watched"><span>最近看的</span><b class="muted">去观看记录里看看</b>${link}</div>`;
+  return `<div class="sv-watched" title="来自观看记录（电视、手机上用同一账号看的也算）"><span>最近看的</span><b>${esc(w.title)}</b><small>${esc(w.exact ? fmtCheck(w.at) : fmtShort(w.at))}</small>${link}</div>`;
+}
 // 卡片里的短日期：今天 / 昨天 / N 天前
 function fmtShort(ts) {
   const days = Math.floor((Date.now() - ts) / 86400000);
@@ -394,7 +443,8 @@ function diagText(d) {
     a.storage ? `空间：${a.storage.label}（${a.storage.pct}%）` : d.quotaError ? `空间：没读到（用量接口：${d.quotaError}）` : "",
     d.injectError ? `注入失败：${d.injectError}` : "",
     d.activity ? (d.activity.error ? "观看记录：读取失败" : d.activity.loggedOut ? "观看记录：没登录"
-      : `观看记录：抓到 ${d.activity.count} 条${d.activity.topLabel ? `，第一组「${d.activity.topLabel}」` : ""}${d.activity.count ? "（" + d.activity.ids.join("、") + "）" : "，没认出条目"}`) : "",
+      : d.activity.guestOnly ? `观看记录：账户页显示没登录，读到的 ${d.activity.count} 条可能只是本机的游客记录，不采用`
+      : `观看记录：抓到 ${d.activity.count} 条${d.activity.lastTs ? `，最近一次观看 ${new Date(d.activity.lastTs).toLocaleString("zh-CN", { hour12: false })}${d.activity.sample && d.activity.sample[0] ? `（${d.activity.sample[0]}）` : ""}` : ""}${d.activity.topLabel ? `，第一组「${d.activity.topLabel}」` : ""}${d.activity.count ? "（" + d.activity.ids.join("、") + "）" : "，没认出条目"}${d.activity.calls ? "　接口调用：" + d.activity.calls.map(c => `${c.appid || "?"}/${c.ret}/${c.n}`).join(" ") : ""}${d.activity.source ? "　来源：" + d.activity.source : ""}${!d.activity.lastTs && d.activity.sample && d.activity.sample.length ? "　片名：" + d.activity.sample.join("、") : ""}${d.activity.pageUrl ? "　观看记录页：" + d.activity.pageUrl : ""}${d.activity.hrefs && d.activity.hrefs.length ? "　链接示例：" + d.activity.hrefs.join(" ") : ""}${d.activity.fresh ? "　跳过缓存重取：" + (d.activity.fresh.error ? "失败 " + d.activity.fresh.error : `${d.activity.fresh.ret}/${d.activity.fresh.n}`) : ""}`) : "",
     `页面文字 ${d.textLength} 字，开头：`,
     d.excerpt || "（空）"
   ].filter(Boolean).join("\n"));
@@ -437,8 +487,8 @@ function llmHtml(s) {
   const L = s.llm, st = L.stats || {};
   const ORIGIN = { apple: "经 App Store 付费，要在 iPhone 的订阅管理里退", google: "经 Google Play 付费，要在 Play 商店里退" };
   const line1 = [`套餐 <b>${esc(L.plan ? L.plan.label : "未知")}</b>`,
-    `近 30 天用了 <b>${st.activeDays30 || 0}</b> 天`,
-    `近 7 天 <b>${st.convs7 || 0}</b> 个对话`].join(" · ");
+    T("近 30 天用了 {n} 天", { n: `<b>${st.activeDays30 || 0}</b>` }),
+    T("近 7 天 {n} 个对话", { n: `<b>${st.convs7 || 0}</b>` })].join(" · ");
   let line2 = "";
   if (L.usage && (L.usage.fiveHour != null || L.usage.week != null)) {
     line2 = `<div>额度：5 小时 ${meter(L.usage.fiveHour)} · 本周 ${meter(L.usage.week)}${L.usage.weekOpus != null ? ` · 本周高阶模型 ${meter(L.usage.weekOpus)}` : ""}</div>`;
@@ -1177,6 +1227,12 @@ $("subList").addEventListener("click", async (e) => {
     renderSubs();
     return;
   }
+  if (ds.hist) {
+    e.preventDefault();
+    const sh = state.subs.find(x => x.id === ds.hist), u = sh && histUrlOf(sh);
+    if (u) send({ type: "OPEN_TAB", url: u });
+    return;
+  }
   if (fix) {
     const s0 = state.subs.find(x => x.id === fix);
     if (s0 && LLM_ORIGINS[s0.provider] && s0.signal && s0.signal.reason === "no_permission") {
@@ -1184,10 +1240,12 @@ $("subList").addEventListener("click", async (e) => {
       if (ok) { await checkSubs([s0.id]); }
       return;
     }
-    // 打开该服务的活动页：登录后下一次检查就会自动恢复
+    // 没登录：打开该服务的会员 / 账户页（没登录会跳到登录页）；其它情况打开活动页。登录后下一次检查就会自动恢复
     const s = state.subs.find(x => x.id === fix);
+    const cp = s && s.catalogId && SubCatalog.BY_ID[s.catalogId];
     const p = s && state.providers.find(x => x.key === s.provider);
-    const url = p ? p.url : (s && s.urlPattern ? "https://" + normalizeDomain(s.urlPattern) : null);
+    const url = (cp && cp.accountUrl && s.signal && s.signal.reason === "logged_out") ? cp.accountUrl
+      : p ? p.url : (s && s.urlPattern ? "https://" + normalizeDomain(s.urlPattern) : null);
     if (url) send({ type: "OPEN_TAB", url });
   } else if (edit) {
     const s = state.subs.find(x => x.id === edit);
@@ -1236,6 +1294,181 @@ PopupMail.initialize({ getState: () => state, esc, fmtDate, catalogFor, addFromC
   atLimit, limitText, send, refresh, requestOrigins });
 resetForm();
 refresh().then(() => { if (GRANT_WINDOW) runGrantWindow(); });
+
+// ---------- 邮箱发现 ----------
+const GMAIL_ORIGIN = "https://mail.google.com/*";
+const CONF_LABEL = { high: "高可信", medium: "中可信", low: "低可信" };
+const MAIL_ERR = {
+  logged_out: "这个浏览器没有登录 Gmail，或账号序号不对。请先在本浏览器登录 Gmail 再扫描。",
+  read_failed: "打开了 Gmail，但没读到邮件列表。可能是网络慢，或 Gmail 页面结构变了。可以勾选「扫描时显示 Gmail 标签页」再扫一次，看看页面上显示的是什么。",
+  no_permission: "没有获得读取 mail.google.com 的权限，无法扫描。",
+  busy: "已经在扫描中了。",
+  network: "连不上 Gmail 接口，请检查网络后重试。",
+};
+let mailOptsLoaded = false;
+
+function fmtDay(ts) {
+  return ts ? new Date(ts).toLocaleDateString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit" }) : "—";
+}
+function fmtMoney(a) { return a ? `${a.currency}${a.value}` : ""; }
+
+// 候选是否已经在订阅列表里（按域名或名称）
+function isTracked(c) {
+  const name = String(c.name || "").trim().toLowerCase();
+  return state.subs.some(s =>
+    (c.domain && s.urlPattern && hostMatches(c.domain, s.urlPattern)) ||
+    (name && String(s.name || "").trim().toLowerCase() === name));
+}
+
+function statsHtml(st) {
+  if (!st) return "";
+  return `<br><span style="opacity:.8">读取情况：页面上找到 ${st.rowEls} 行邮件，
+    其中 ${st.withSender} 行读到发件人、${st.withSubject} 行读到主题、${st.withDate} 行读到日期。</span>`;
+}
+
+function renderMail() {
+  const ms = state.mailScan;
+  const ignored = new Set(state.mailIgnored || []);
+  if (!mailOptsLoaded) {
+    if (ms && ms.account != null) $("m-acct").value = ms.account;
+    if (ms && ms.pages) $("m-pages").value = String(ms.pages);
+    mailOptsLoaded = true;
+  }
+
+  // 扫描超过 10 分钟还是 running，说明后台被中断了（比如浏览器关了）
+  const running = !!(ms && ms.status === "running" && Date.now() - (ms.startedAt || 0) < 10 * 60000);
+  $("m-scan").disabled = running;
+  let runTxt = "";
+  if (running) {
+    runTxt = `扫描中… 第 ${ms.progress || 0}/${ms.pages} 页，已读 ${ms.rowsRead || 0} 封（可以关掉弹窗）`;
+  }
+  $("m-status").textContent = runTxt;
+
+  let summary = "";
+  if (ms && ms.status === "running" && !running) {
+    summary = '<div class="diag bad">上次扫描中途中断了，请重新扫描。</div>';
+  } else if (ms && ms.status === "error") {
+    summary = `<div class="diag bad">${esc(MAIL_ERR[ms.error] || MAIL_ERR.read_failed)}${statsHtml(ms.stats)}
+      ${(ms.candidates || []).length ? "<br>下面是上一次扫描成功的结果。" : ""}</div>`;
+  } else if (ms && ms.status === "done") {
+    const n = (ms.candidates || []).length;
+    summary = `<div class="diag ${n ? "good" : ""}">
+      ${ms.email ? T("账号 {e}：", { e: "<b>" + esc(ms.email) + "</b>" }) : ""}${T("读了 {p} 页、{r} 封搜索结果，其中 {b} 封像收据或续费通知，归并出 {n} 个候选订阅。", { p: ms.pagesRead || 0, r: ms.rowsRead, b: ms.billingRows, n: "<b>" + n + "</b>" })}
+      ${ms.warn === "timeout" ? "<br>⚠ 有页面加载超时，结果可能不全。" : ""}
+      ${ms.warn === "limit" ? "<br>⚠ 达到了读取上限，更早的邮件没读到。可以调大「最多读取」再扫。" : ""}
+      ${ms.failedReads ? `<br>⚠ 有 ${ms.failedReads} 封读取失败，已跳过。` : ""}
+      ${!ms.rowsRead ? "<br>没有搜到收据类邮件。如果你确定有，检查一下账号序号对不对。" : ""}
+      <br><span style="opacity:.8">扫描于 ${esc(fmtDate(ms.finishedAt))} · 结果只存在本机</span></div>`;
+  }
+  $("m-summary").innerHTML = summary;
+
+  const cands = (ms && ms.candidates) || [];
+  const shown = cands.filter(c => !ignored.has(c.key));
+  const hiddenN = cands.length - shown.length;
+
+  $("m-list").innerHTML = shown.map(c => {
+    const tracked = isTracked(c);
+    const tags = [];
+    if (tracked) tags.push('<span class="tagv">已在订阅中</span>');
+    if (c.status === "cancelled") tags.push('<span class="tagx">可能已取消</span>');
+    if (c.status === "stale") tags.push('<span class="tagu">近期没见到扣费</span>');
+
+    let price = "";
+    if (c.amount) {
+      price = fmtMoney(c.amount) + (c.cadence ? " / " + c.cadence.unit : "");
+      if (c.monthly && c.cadence && c.cadence.key !== "monthly") price += `（约 ${fmtMoney(c.monthly)}/月）`;
+    }
+    const bits = [
+      c.via ? `经 ${c.viaName} 扣费` : c.domain,
+      c.cadence ? c.cadence.label : (c.charges >= 2 ? "周期不规律" : c.charges === 1 ? "只见到 1 次" : ""),
+      price,
+      c.last ? "最近 " + fmtDay(c.last) : "",
+      c.nextCharge ? "预计下次 " + fmtDay(c.nextCharge) : "",
+      `${c.mails} 封`
+    ].filter(Boolean);
+
+    const storeNote = (c.via === "apple.com" || c.via === "google.com")
+      ? '<div class="samples">这是应用商店的收据，可能包含多个 App 的订阅，具体是哪个要打开收据看。</div>' : "";
+
+    return `<div class="sub">
+      <div class="info">
+        <div class="name">${esc(c.name)}<span class="conf ${c.confidence}">${CONF_LABEL[c.confidence]}</span>${tags.join("")}</div>
+        <div class="meta">${esc(bits.join(" · "))}</div>
+        ${c.samples && c.samples.length ? `<div class="samples">${c.samples.map(x => "“" + esc(x) + "”").join("<br>")}</div>` : ""}
+        ${storeNote}
+      </div>
+      <div class="acts">
+        ${tracked ? "" : `<button data-madd="${esc(c.key)}" title="${catalogFor(c.domain) ? "我们收录了这个服务，会读取套餐" : "没收录：填进「手动添加网址」，只统计访问次数"}">${catalogFor(c.domain) ? "添加" : "添加网址"}</button>`}
+        <button data-mign="${esc(c.key)}">忽略</button>
+      </div>
+    </div>`;
+  }).join("") || (ms && ms.status === "done" && !cands.length
+      ? '<div class="ad-empty">没有发现候选订阅。</div>'
+      : (!ms ? '<div class="ad-empty">还没扫描过。点「扫描邮箱」开始，第一次会请你授权读取 mail.google.com。</div>' : ""));
+  const nNew = shown.filter(c => !isTracked(c)).length;
+  $("badgeMail").hidden = !nNew; $("badgeMail").textContent = nNew;
+
+  $("m-hidden").innerHTML = hiddenN ? `已忽略 ${hiddenN} 项 · <a href="#" id="m-unhide">全部恢复</a>` : "";
+}
+
+// 把候选填进「添加订阅」表单，让用户核对后再保存
+function prefillFromCandidate(c) {
+  // 收录了的服务直接走常见服务添加（能读到套餐）
+  const p = catalogFor(c.domain);
+  if (p) { addFromCatalog(p.id); return; }
+  resetForm(null, {
+    name: c.name,
+    urlPattern: c.domain || "",
+    price: c.monthly ? c.monthly.value : "",   // 看不出周期就不折算，留空让用户填
+    currency: (c.monthly || c.amount || {}).currency || "$",
+    idleDays: 30,
+    mode: "browser"
+  });
+  let note = "来自邮箱扫描。";
+  if (c.amount && c.cadence && c.cadence.key !== "monthly") {
+    note += `收据金额 ${fmtMoney(c.amount)}（${c.cadence.label}），已折算成月费。`;
+  } else if (c.amount && !c.cadence) {
+    note += `收据里的金额是 ${fmtMoney(c.amount)}，但看不出扣费周期，月费请自己填。`;
+  }
+  if (!c.domain) note += `它是经 ${c.viaName} 扣费的，请自己填上这个服务的网址。`;
+  if (c.status === "cancelled") note += "最近一封邮件像是取消或到期通知，确认还在付费再添加。";
+  note += "请核对后保存。";
+  $("prefillNote").textContent = note;
+  $("prefillNote").hidden = false;
+  show("add");
+  showPane("manual");
+}
+
+$("m-scan").addEventListener("click", async () => {
+  // 权限只在这里、由你点击时申请（必须是点击后的第一个异步调用）
+  const params = { account: $("m-acct").value, pages: $("m-pages").value, showTab: $("m-show").checked };
+  const granted = await requestOrigins([GMAIL_ORIGIN], "mail", "mail", params);
+  if (!granted) { $("m-status").textContent = MAIL_ERR.no_permission; return; }
+  const r = await send(Object.assign({ type: "MAIL_SCAN_START" }, params));
+  if (!r || !r.ok) { $("m-status").textContent = MAIL_ERR[r && r.reason] || "启动扫描失败。"; return; }
+  await refresh();
+});
+
+$("m-list").addEventListener("click", async (e) => {
+  const add = e.target.dataset.madd, ign = e.target.dataset.mign;
+  const key = add || ign;
+  if (!key) return;
+  const c = ((state.mailScan && state.mailScan.candidates) || []).find(x => x.key === key);
+  if (!c) return;
+  if (ign) {
+    await send({ type: "MAIL_IGNORE", key, ignore: true });
+    await refresh();
+  } else {
+    prefillFromCandidate(c);
+  }
+});
+
+$("m-hidden").addEventListener("click", async (e) => {
+  if (e.target.id !== "m-unhide") return;
+  e.preventDefault();
+  await send({ type: "MAIL_IGNORE", all: true, ignore: false });
+  await refresh();
+});
 
 // 扫描在后台进行，进度写进 storage；弹窗开着时实时刷新
 chrome.storage.onChanged.addListener((changes, area) => {
