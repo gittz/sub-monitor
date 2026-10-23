@@ -76,6 +76,14 @@
     "每周": "Weekly", "每月": "Monthly", "每季度": "Quarterly", "每年": "Yearly",
     "账号": "Account",
     "中": "中",
+    "一键授权": "Grant access",
+    "有 {n} 个订阅需要授权": "{n} subscriptions need access",
+    "这些订阅是从其他设备同步来的，在这台电脑上授权后才能读取套餐和使用记录。点此授权。": "These subscriptions were synced from another device. Grant access on this computer so their plan and usage can be read. Click to grant.",
+    " 等 {n} 个": " and others ({n} in total)",
+    "{names} 在这台电脑上还没授权，授权后才能读取套餐和使用记录。": "{names}: not yet granted on this computer. Grant access so their plan and usage can be read.",
+    "授权读取 {n} 个订阅": "Grant access to {n} subscriptions",
+    "{names} 是从其他设备同步来的，在这台电脑上授权后才能读取套餐和使用记录。": "{names} were synced from another device. Grant access on this computer so their plan and usage can be read. ",
+    "这个服务的观看记录里没有观看时间，只能按在本浏览器打开网站的时间判断": "This service's history has no watch times, so usage is based on when you open the site in this browser",
     "打开官网": "Open website",
     "打开 IdleSubs 官网": "Open the IdleSubs website",
     "账号与反馈": "Account & feedback",
@@ -532,6 +540,7 @@
 
   // 拼出来的句子按片段换
   const PH = [
+    ["B站大会员", "Bilibili Premium"], ["腾讯视频", "Tencent Video"], ["百度网盘", "Baidu Netdisk"],
     ["· 最近看 ", "· watched "], ["最近看 ", "Watched "],
     ["· 1 封", "· 1 email"], [" / 月", "/mo"], [" / 年", "/yr"], ["（≈ ", " (≈ "], ["）", ")"], ["（", " ("], ["经 ", "Billed via "], [" 扣费", ""], ["今天", "today"], ["昨天", "yesterday"],
     ["每季度", "Quarterly"], ["每月", "Monthly"], ["每周", "Weekly"], ["每年", "Yearly"], ["周期不规律", "Irregular cycle"], ["只见到 1 次", "Seen once"], [" 封", " emails"],

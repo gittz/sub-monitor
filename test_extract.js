@@ -107,20 +107,16 @@ ctx = loadBackground("https://x.com/", fakeDocWith([]));
 const eval_ = (expr) => vm.runInContext(expr, ctx);
 const cat = eval_("CATALOG");
 check("YouTube 标为已实测", cat.youtube.verified === true);
-check("Netflix 诚实标为未实测", cat.netflix.verified === false);
-check("Netflix 地址与官方帮助中心一致",
-  cat.netflix.activityUrl === "https://www.netflix.com/settings/viewing-history");
-check("Prime Video 地址正确",
-  cat.primevideo.activityUrl === "https://www.primevideo.com/settings/watch-history");
-check("提供自定义服务入口", !!cat.custom);
+check("只保留适配好的读取方式", Object.keys(cat).sort().join() === "bilibili,chatgpt,claude,tencent,youtube");
+check("每个读取方式都实测过或有专用读法", Object.keys(cat).every(k => cat[k].verified === true || cat[k].strategy === "llm"));
 check("已知无活动页的服务被登记（Spotify 等）",
   eval_("NO_ACTIVITY_PAGE").some(x => x.match === "spotify.com"));
 
 console.log("== getProviderConfig：用户填的值应覆盖默认值 ==");
-const cfg = ctx.getProviderConfig({ provider: "netflix", idPattern: "/custom/(\\d+)" });
+const cfg = ctx.getProviderConfig({ provider: "bilibili", idPattern: "/custom/(\\d+)" });
 check("用户自定义正则覆盖默认", cfg.idPattern === "/custom/(\\d+)");
 check("未覆盖的字段沿用目录默认",
-  cfg.activityUrl === "https://www.netflix.com/settings/viewing-history");
+  cfg.activityUrl === "https://www.bilibili.com/account/history" && cfg.api && cfg.api.urls.length === 2);
 check("未知服务返回 null", ctx.getProviderConfig({ provider: "不存在" }) === null);
 
 // 通用抓取：等前端渲染出列表、读分组标题（目前没有服务用到，留给以后）

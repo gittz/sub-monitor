@@ -41,12 +41,13 @@ function boot(pages, opts) {
     } },
     webNavigation: { onCompleted: ev("nav"), onHistoryStateUpdated: ev("b") },
     alarms: { onAlarm: ev("c"), get: async (n) => alarmsMade.filter(x => x.name === n).pop() || null, create: (n, o) => alarmsMade.push(Object.assign({ name: n }, o)) },
-    runtime: { onInstalled: ev("d"), onStartup: ev("e"), onMessage: ev("msg") },
-    notifications: { onClicked: ev("f"), create: (id, o) => notes.push({ id, o }) }
+    runtime: { onInstalled: ev("d"), onStartup: ev("e"), onMessage: ev("msg"), getURL: (p) => "chrome-extension://test/" + p },
+    notifications: { onClicked: ev("f"), create: (id, o) => notes.push({ id, o }) },
+    windows: { getLastFocused: async () => null, create: async (o) => { (opts.windows = opts.windows || []).push(o); return { id: 1 }; } }
   };
   const ctx = { console, chrome, setTimeout: (f, ms) => realTimeout(f, Math.min(ms || 0, 5)), clearTimeout, Promise, Date, JSON, Math, Set, Map, URL, URLSearchParams, RegExp, importScripts: () => {} };
   ctx.globalThis = ctx; vm.createContext(ctx);
-  for (const f of ["i18n.js", "i18n-en.js", "lib.js", "mailscan.js", "llm.js", "catalog.js", "history.js", "auth.js", "sync.js", "background.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, f), "utf8"), ctx);
+  for (const f of ["i18n.js", "i18n-en.js", "lib.js", "mailscan.js", "llm.js", "catalog.js", "history.js", "auth.js", "sync.js", "activity.js", "background.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, f), "utf8"), ctx);
   const send = (m) => new Promise(r => listeners.msg[0](m, {}, r));
   const grant = () => (listeners.padd || []).forEach(f => f({ origins: [] }));
   return { store, send, notes, opened, ctx, popups, grant, listeners, alarmsMade };
@@ -56,25 +57,25 @@ const wait = (ms) => new Promise(r => realTimeout(r, ms));
 
 (async () => {
   const C = require("./catalog.js");
-  const nf = C.BY_ID.netflix, bp = C.BY_ID["baidu-pan"], sp = C.BY_ID.spotify;
+  const nf = C.BY_ID.youtube, bp = C.BY_ID["baidu-pan"], sp = C.BY_ID.bilibili;
   const in5 = new Date(Date.now() + 2 * DAY);
   const renewTxt = `${in5.getFullYear()}年${in5.getMonth() + 1}月${in5.getDate()}日`;
   const pages = {
-    [nf.accountUrl]: { text: "Account\nMembership\nPremium plan\n4K + HDR\n$22.99/month\nNext payment: " + in5.toDateString().slice(4) + "\nCancel membership\n" + "x".repeat(300) },
+    [nf.accountUrl]: { text: "Memberships\nYouTube Premium\nAd-free\n$22.99/month\nNext payment: " + in5.toDateString().slice(4) + "\nCancel membership\n" + "x".repeat(300) },
     [bp.accountUrl]: { text: "我的会员\n超级会员 SVIP\n到期时间：" + renewTxt + "\n已用 120GB / 5TB\n" + "x".repeat(300) },
     [sp.accountUrl]: "THROW"
   };
 
-  // 1. 从目录添加 Netflix（有观看记录页 → 活动记录型）
+  // 1. 从目录添加 YouTube（有观看记录页 → 活动记录型）
   let B = boot(pages);
-  let r = await B.send({ type: "CATALOG_ADD", id: "netflix" });
+  let r = await B.send({ type: "CATALOG_ADD", id: "youtube" });
   await wait(60);
   let s = B.store.subs[0];
-  t("添加 Netflix：建好订阅并读到套餐", r.ok && s.catalogId === "netflix" && s.account.status === "ok" && /Premium/.test(s.account.plan.label));
+  t("添加 YouTube：建好订阅并读到套餐", r.ok && s.catalogId === "youtube" && s.account.status === "ok" && /Premium/.test(s.account.plan.label));
   t("页面价格写入月费", s.price === 22.99 && s.priceSource === "page");
-  t("有观看记录页 → 活动记录型，并顺便读了一次活动", s.mode === "activity" && s.provider === "netflix" && !!s.sig);
+  t("有观看记录页 → 活动记录型，并顺便读了一次活动", s.mode === "activity" && s.provider === "youtube" && !!s.sig);
   t("续费日读到了", !!s.account.renewAt && Math.abs(s.account.renewAt - in5.getTime()) < 2 * DAY);
-  r = await B.send({ type: "CATALOG_ADD", id: "netflix" });
+  r = await B.send({ type: "CATALOG_ADD", id: "youtube" });
   t("重复添加不会多出一条", B.store.subs.length === 1);
 
   // 2. 百度网盘（浏览器访问型）：访问记录里有历史访问 → 直接作为起点
@@ -104,12 +105,12 @@ const wait = (ms) => new Promise(r => realTimeout(r, ms));
 
   // 4. 注入失败（被跳到别的域名）→ read_failed
   B = boot(pages);
-  r = await B.send({ type: "CATALOG_ADD", id: "spotify" });
+  r = await B.send({ type: "CATALOG_ADD", id: "bilibili" });
   t("账户页注入失败：订阅照样建好，状态 read_failed", r.ok && B.store.subs[0].account.status === "read_failed");
 
   // 5. 没授权
   B = boot(pages, { perm: false });
-  r = await B.send({ type: "CATALOG_ADD", id: "netflix" });
+  r = await B.send({ type: "CATALOG_ADD", id: "youtube" });
   t("没授权：不建订阅，返回 no_permission", !r.ok && r.reason === "no_permission" && B.store.subs.length === 0);
 
   // 6. 诊断
@@ -132,20 +133,20 @@ const wait = (ms) => new Promise(r => realTimeout(r, ms));
 
   // 授权小窗口：点「允许」后小窗口让后台马上接着做；结果留在小窗口里，不重开弹窗、不发通知，也不会做两遍
   B = boot(pages);
-  await B.send({ type: "PENDING_GRANT", action: "catalog", id: "netflix", origins: C.originsOf(nf), inWindow: true });
+  await B.send({ type: "PENDING_GRANT", action: "catalog", id: "youtube", origins: C.originsOf(nf), inWindow: true });
   B.grant();                                  // onAdded（1.5 秒后也会尝试接着做）
   await B.send({ type: "RESUME_PENDING" });   // 小窗口主动要求马上做
   await wait(1700);
-  t("授权小窗口：后台马上完成添加，只添加一次", B.store.subs.length === 1 && B.store.subs[0].catalogId === "netflix" && !B.store.pendingGrant &&
+  t("授权小窗口：后台马上完成添加，只添加一次", B.store.subs.length === 1 && B.store.subs[0].catalogId === "youtube" && !B.store.pendingGrant &&
     B.opened.filter(u => u === nf.accountUrl).length === 1);
   t("授权小窗口：结果写进 grantResult，不重开弹窗、不发通知", B.store.grantResult && B.store.grantResult.res.ok && B.popups.length === 0 && !B.notes.some(n => /已添加/.test(n.o.title)));
 
   // 9. 授权框把弹窗关掉：后台接着做完
   B = boot(pages);
-  await B.send({ type: "PENDING_GRANT", action: "catalog", id: "netflix", origins: C.originsOf(nf) });
+  await B.send({ type: "PENDING_GRANT", action: "catalog", id: "youtube", origins: C.originsOf(nf) });
   B.grant();
   await wait(1700);
-  t("授权后弹窗已关闭：后台自动完成添加", B.store.subs.length === 1 && B.store.subs[0].catalogId === "netflix" && !B.store.pendingGrant);
+  t("授权后弹窗已关闭：后台自动完成添加", B.store.subs.length === 1 && B.store.subs[0].catalogId === "youtube" && !B.store.pendingGrant);
   t("结果写进 grantResult，并重新打开弹窗", B.store.grantResult && B.store.grantResult.res.ok && !B.store.grantResult.running && B.popups.length === 1);
   B = boot(pages, { noPopup: true });
   await B.send({ type: "PENDING_GRANT", action: "diag", id: "baidu-pan", origins: C.originsOf(bp) });
@@ -153,13 +154,13 @@ const wait = (ms) => new Promise(r => realTimeout(r, ms));
   await wait(1700);
   t("打不开弹窗时发通知；诊断结果也保留", B.notes.some(n => /诊断完成/.test(n.o.title)) && B.store.grantResult.res.result.status === "ok");
   B = boot(pages);
-  await B.send({ type: "PENDING_GRANT", action: "catalog", id: "netflix", origins: C.originsOf(nf) });
+  await B.send({ type: "PENDING_GRANT", action: "catalog", id: "youtube", origins: C.originsOf(nf) });
   B.grant();
-  await B.send({ type: "CATALOG_ADD", id: "netflix" });   // 弹窗没被关掉，自己接着做了
+  await B.send({ type: "CATALOG_ADD", id: "youtube" });   // 弹窗没被关掉，自己接着做了
   await wait(1700);
   t("弹窗自己接着做了：后台不重复", B.store.subs.length === 1 && !B.store.grantResult && B.opened.filter(u => u === nf.accountUrl).length === 1);
   B = boot(pages);
-  await B.send({ type: "PENDING_GRANT", action: "catalog", id: "netflix", origins: C.originsOf(nf) });
+  await B.send({ type: "PENDING_GRANT", action: "catalog", id: "youtube", origins: C.originsOf(nf) });
   B.store.pendingGrant.at -= 10 * 60000;
   B.grant();
   await wait(1700);
@@ -169,7 +170,7 @@ const wait = (ms) => new Promise(r => realTimeout(r, ms));
   const H = [
     { url: "https://pan.baidu.com/disk/home", time: Date.now() - 5 * DAY },
     { url: "https://www.notion.so/a", time: Date.now() - 2 * DAY },
-    { url: "https://www.netflix.com/browse", time: Date.now() - 1 * DAY }
+    { url: "https://www.youtube.com/browse", time: Date.now() - 1 * DAY }
   ];
   B = boot(pages, { history: H });
   B.store.subs = [{ id: "n", name: "Notion", mode: "browser", urlPattern: "notion.so", idleDays: 30, lastUsed: null },
@@ -179,7 +180,7 @@ const wait = (ms) => new Promise(r => realTimeout(r, ms));
   t("读浏览历史：装插件前的访问直接作为最近使用", r.ok && Math.abs(n.lastUsed - H[1].time) < 1000 && n.hist.days30 === 1);
   t("90 天都没访问过：直接判为闲置，不用等基线", f.lastUsedFloor === true && B.ctx.computeStatus(f, Date.now()).state === "idle");
   let gs = await B.send({ type: "GET_STATE" });
-  t("「发现」能用到历史里的访问", gs.historyPermission && gs.history.hits.some(h => h.hostname === "netflix.com"));
+  t("「发现」能用到历史里的访问", gs.historyPermission && gs.history.hits.some(h => h.hostname === "youtube.com"));
   await B.send({ type: "CATALOG_ADD", id: "baidu-pan" });
   await wait(50);
   const bpSub = B.store.subs.find(x => x.catalogId === "baidu-pan");
@@ -193,13 +194,13 @@ const wait = (ms) => new Promise(r => realTimeout(r, ms));
 
   // 11. 访问次数：所有订阅都记（收录的和没收录的），插件自己打开的不算，浏览历史补上装插件前的
   const H2 = [
-    { url: "https://www.netflix.com/browse", time: Date.now() - 3 * DAY },
-    { url: "https://www.netflix.com/watch/1", time: Date.now() - 3 * DAY + 5 * 60000 },
-    { url: "https://www.netflix.com/browse", time: Date.now() - 20 * DAY },
+    { url: "https://www.youtube.com/browse", time: Date.now() - 3 * DAY },
+    { url: "https://www.youtube.com/watch/1", time: Date.now() - 3 * DAY + 5 * 60000 },
+    { url: "https://www.youtube.com/browse", time: Date.now() - 20 * DAY },
     { url: "https://mymagicapp.io/app", time: Date.now() - 1 * DAY }
   ];
   B = boot(pages, { history: H2 });
-  B.store.subs = [{ id: "nf", name: "Netflix", catalogId: "netflix", mode: "activity", provider: "netflix", urlPattern: "netflix.com", idleDays: 30 },
+  B.store.subs = [{ id: "nf", name: "YouTube", catalogId: "youtube", mode: "activity", provider: "youtube", urlPattern: "youtube.com", idleDays: 30 },
                   { id: "mm", name: "Mymagic", mode: "browser", urlPattern: "mymagicapp.io", idleDays: 30 }];
   const nav = (url, tabId) => B.ctx.chrome.webNavigation.onCompleted;
   await B.send({ type: "HISTORY_SCAN" });
@@ -219,11 +220,25 @@ const wait = (ms) => new Promise(r => realTimeout(r, ms));
   t("YouTube 网址填错也按 youtube.com 统计，并算作在用", Date.now() - yts.lastUsed < 5000 && B.ctx.visitStats(yts.visitLog, Date.now()).d7 === 1);
   t("访问流水只存网站和时间，不存完整网址", B.store.records.length > 0 && B.store.records.every(r => !r.url && r.hostname));
   B.store.subs.push({ id: "tv2", name: "B站大会员", catalogId: "bilibili", mode: "activity", provider: "bilibili", urlPattern: "bilibili.com", idleDays: 30,
-                     lastUsed: Date.now() - 1 * DAY, sig: "a,b,c", signal: { ok: true } });
+                     lastUsed: Date.now() - 1 * DAY, lastWatched: Date.now() - 1 * DAY, timeOk: true, sig: "a,b,c", signal: { ok: true } });
   B.listeners.nav[0]({ frameId: 0, url: "https://www.bilibili.com/", tabId: 98 });
   await wait(30);
   const tv2 = B.store.subs.find(x => x.id === "tv2");
   t("观看记录已读通：只打开网站不改最近使用（以观看记录为准），访问照常统计", Math.abs(tv2.lastUsed - (Date.now() - DAY)) < 2000 && B.ctx.visitStats(tv2.visitLog, Date.now()).d7 === 1);
+  // 观看记录里没有时间（只有一串条目）：不按「列表变没变」推断，等同于没有观看记录信号，按浏览器访问判断
+  {
+    const old = Date.now() - 20 * DAY;
+    const Bn = boot(pages, { topLabel: "" });
+    Bn.store.subs = [{ id: "nf", name: "YouTube", catalogId: "youtube", mode: "activity", provider: "youtube", urlPattern: "youtube.com", idleDays: 30,
+                       lastUsed: old, sig: "x,y,z", signal: { ok: true } }];
+    await Bn.send({ type: "RUN_CHECK", ids: ["nf"] });
+    await wait(30);
+    const nf = Bn.store.subs[0];
+    t("记录里没有时间：列表变了也不算在用，最近使用不变", nf.lastUsed === old && nf.timeOk === false && nf.signal.ok === true, nf);
+    Bn.listeners.nav[0]({ frameId: 0, url: "https://www.youtube.com/browse", tabId: 97 });
+    await wait(30);
+    t("记录里没有时间：打开网站算在用（按浏览器访问）", Date.now() - Bn.store.subs[0].lastUsed < 5000);
+  }
   t("大模型：打开页面只记访问，不算在用", Date.now() - cgs.lastUsed > 30 * DAY && B.ctx.visitStats(cgs.visitLog, Date.now()).d7 === 1);
 
   // 别的设备的访问（Chrome 历史同步过来的，isLocal=false）不在这里统计
@@ -345,6 +360,31 @@ const wait = (ms) => new Promise(r => realTimeout(r, ms));
     t("账户页读到套餐：登录了，正常用观看记录", Bo.store.subs[0].signal.ok && Bo.store.subs[0].loginState === "ok");
   }
 
+  // 别的设备同步来的订阅：这台电脑上还没授权 → 提示一次；点通知打开授权小窗口；授权后检查这几个
+  {
+    const og = { perm: false };
+    const Bg = boot(pages, og);
+    Bg.store.subs = [{ id: "g-nf", name: "YouTube", catalogId: "youtube", mode: "activity", provider: "youtube", urlPattern: "youtube.com", idleDays: 30 },
+                     { id: "g-cl", name: "Claude", mode: "activity", provider: "claude", urlPattern: "claude.ai", idleDays: 30 },
+                     { id: "g-own", name: "自己的网站", mode: "browser", urlPattern: "example.org", idleDays: 30 }];
+    const st = await Bg.send({ type: "GET_STATE" });
+    t("GET_STATE 列出这台电脑上还没授权的订阅（只看需要网站权限的）", st.needGrant.length === 2 && st.needGrant.some(x => x.id === "g-cl" && x.origins[0] === "https://claude.ai/*") &&
+      st.needGrant.find(x => x.id === "g-nf").origins.some(o => /youtube\.com/.test(o)), st.needGrant);
+    await Bg.ctx.notifyMissingGrants();
+    await Bg.ctx.notifyMissingGrants();
+    const ng = Bg.notes.filter(n => n.id === "needgrant");
+    t("同步后有需要授权的订阅：发一次通知，同一批不重复提醒", ng.length === 1 && /2/.test(ng[0].o.title), ng);
+    Bg.listeners.f[0]("needgrant");
+    await wait(30);
+    const pg = Bg.store.pendingGrant;
+    t("点通知：登记「一次授权全部」并打开授权小窗口", pg && pg.action === "grantAll" && pg.params.ids.length === 2 && pg.origins.indexOf("https://claude.ai/*") >= 0 &&
+      (og.windows || []).some(w => /grant=1/.test(w.url)), { pg, w: og.windows });
+    og.perm = true;
+    await Bg.ctx.resumePending();
+    await wait(40);
+    t("授权后：检查这几个订阅，提示消失", Bg.store.subs.find(x => x.id === "g-nf").lastChecked > 0 && !Bg.store.pendingGrant && !(await Bg.send({ type: "GET_STATE" })).needGrant.length);
+  }
+
   // 优酷：观看记录页拿不到可靠的观看时间，按浏览器访问判断；以前按观看记录添加的改回来
   {
     const B8 = boot(pages, {});
@@ -367,8 +407,7 @@ const wait = (ms) => new Promise(r => realTimeout(r, ms));
     t("优酷：改回按浏览器访问，清掉观看记录读来的日期和片名，最近使用 = 最近一次打开网站", y1.mode === "browser" && !y1.provider && !y1.lastWatched && !y1.watchTitle && !y1.sig && y1.lastUsed === visit, y1);
     const B9 = boot(pages, {});
     const r9 = await B9.send({ type: "CATALOG_ADD", id: "youku" });
-    await wait(40);
-    t("添加优酷：按浏览器访问", r9.ok && B9.store.subs[0].mode === "browser" && !B9.store.subs[0].provider);
+    t("优酷已不在收录列表：不能从目录添加（可以手动添加网址）", !r9.ok && r9.reason === "unknown" && !B9.store.subs.length);
   }
 
   // 百度网盘：页面文字里没有空间时，用网盘自己的用量接口
@@ -387,7 +426,7 @@ const wait = (ms) => new Promise(r => realTimeout(r, ms));
   // 全部检查（定时 / 立即检查）：3 天内读过套餐的不再打开账户页；单独检查仍然完整读
   {
     const B6 = boot(pages, {});
-    B6.store.subs = [{ id: "nf6", name: "Netflix", catalogId: "netflix", mode: "browser", urlPattern: "netflix.com",
+    B6.store.subs = [{ id: "nf6", name: "YouTube", catalogId: "youtube", mode: "browser", urlPattern: "youtube.com",
                        account: { status: "ok", plan: { label: "Premium", paid: true }, checkedAt: Date.now() - DAY } }];
     await B6.send({ type: "RUN_CHECK" });
     await wait(30);

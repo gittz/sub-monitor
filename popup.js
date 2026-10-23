@@ -106,6 +106,11 @@ function requestPermission(perm, action, id) { return requestAccess({ permission
 function grantLabel(pg) {
   const name = pg.action === "llm" ? (LLM_NAMES[pg.id] || pg.id)
     : (SubCatalog.BY_ID[pg.id] || {}).name || ((state.subs.find(x => x.id === pg.id) || {}).name) || "";
+  if (pg.action === "grantAll") {
+    const names = ((pg.params && pg.params.names) || []).join("、");
+    return { title: T("授权读取 {n} 个订阅", { n: ((pg.params && pg.params.ids) || []).length }),
+             text: T("{names} 是从其他设备同步来的，在这台电脑上授权后才能读取套餐和使用记录。", { names }) };
+  }
   if (pg.action === "mail") return { title: "授权读取 Gmail", text: "插件会在后台打开 Gmail 搜索结果列表，找出可能在付费的订阅。只读列表，不打开邮件正文。" };
   if (pg.action === "history") return { title: "授权读取浏览历史", text: "读取最近 90 天浏览历史，只按网站域名统计访问时间，不保存网址和标题。" };
   if (pg.action === "llm") return { title: `授权读取 ${name}`, text: `读取 ${name} 的套餐、对话时间和额度，不读对话内容。` };
@@ -198,6 +203,7 @@ function renderSubs() {
   $("waste").textContent = save ? `其中闲置的约 ${(idle[0] && idle[0].s.currency) || "$"}${save}/月` : "";
   $("lastCheck").textContent = state.lastCheck ? "上次检查 " + fmtDate(state.lastCheck) : "";
   if (!$("checkStatus").dataset.busy) $("checkStatus").textContent = state.lastCheck ? "上次全部检查：" + fmtCheck(state.lastCheck) : "";
+  renderGrantBar();
   $("idleBanner").hidden = !idle.length;
   $("idleBannerText").textContent = svFilterIdle ? `正在看 ${idle.length} 项最近较少使用的订阅，点这里看全部。` : `有 ${idle.length} 项订阅最近较少使用，看看是否还需要。`;
   $("idleBanner").classList.toggle("on", svFilterIdle);
@@ -279,6 +285,25 @@ function renderSubs() {
   }).join("");
 }
 $("idleBanner").addEventListener("click", () => { svFilterIdle = !svFilterIdle; renderSubs(); });
+
+// 这台电脑上还没授权的订阅（多是别的设备同步来的）：一键授权，一个授权框里列出全部网站
+function renderGrantBar() {
+  const miss = state.needGrant || [];
+  $("grantBar").hidden = !miss.length;
+  if (!miss.length) return;
+  const names = miss.slice(0, 3).map(x => x.name).join("、") + (miss.length > 3 ? T(" 等 {n} 个", { n: miss.length }) : "");
+  $("grantBarText").textContent = T("{names} 在这台电脑上还没授权，授权后才能读取套餐和使用记录。", { names });
+}
+$("grantAll").addEventListener("click", async () => {
+  const miss = state.needGrant || [];
+  if (!miss.length) return;
+  const ids = miss.map(x => x.id);
+  const origins = [...new Set([].concat(...miss.map(x => x.origins)))];
+  const ok = await requestOrigins(origins, "grantAll", null, { ids, names: miss.map(x => x.name) });
+  if (!ok) return;
+  await refresh();
+  checkSubs(ids, { grantAll: true });
+});
 
 // ---------- 手动排序 ----------
 // 用户拖动过就按他排的顺序（存在 subOrder，随云端同步）；没排过按使用状态自动排（闲置的在前）。
@@ -383,9 +408,10 @@ $("svFilterClear").addEventListener("click", (e) => { e.preventDefault(); svFilt
 function usageBasis(s, isLlm) {
   if (isLlm) return { text: "按对话记录", tip: "最近一次发起对话的时间（手机上的对话也算），只打开页面不算" };
   if (s.mode === "activity") {
-    return s.sig && s.signal && s.signal.ok !== false
-      ? { text: "按观看记录", tip: "观看记录里最近一次观看的日期（电视、手机上用同一账号看的也算）" }
-      : { text: "按浏览器访问", tip: "观看记录暂时读不到，先按在本浏览器打开网站的时间判断" };
+    if (SubLib.hasWatchTime(s)) return { text: "按观看记录", tip: "观看记录里最近一次观看的日期（电视、手机上用同一账号看的也算）" };
+    if (s.signal && s.signal.ok !== false && s.sig && s.timeOk === false)
+      return { text: "按浏览器访问", tip: "这个服务的观看记录里没有观看时间，只能按在本浏览器打开网站的时间判断" };
+    return { text: "按浏览器访问", tip: "观看记录暂时读不到，先按在本浏览器打开网站的时间判断" };
   }
   if (s.mode === "browser") return { text: "按浏览器访问", tip: "在本浏览器打开这个网站的时间" };
   return { text: "不参与判断", tip: "" };
@@ -1172,10 +1198,10 @@ $("cancel").addEventListener("click", () => { const back = editingSub; resetForm
 // 正在检查的订阅（用来把对应的「检查」按钮置灰）
 const checking = new Set();
 
-async function checkSubs(ids) {
+async function checkSubs(ids, opts) {
   ids.forEach(id => checking.add(id));
   renderSubs();
-  try { await send({ type: "RUN_CHECK", ids }); }
+  try { await send(Object.assign({ type: "RUN_CHECK", ids }, opts || {})); }
   finally { ids.forEach(id => checking.delete(id)); }
   await refresh();
 }

@@ -142,7 +142,7 @@ function checkNoScopeConflict(name, files) {
     check(name + " 无重复声明 —— " + e.message, false);
   }
 }
-checkNoScopeConflict("i18n + lib.js + mailscan.js + llm.js + catalog.js + history.js + auth.js + background.js（service worker）", ["i18n.js", "i18n-en.js", "lib.js", "mailscan.js", "llm.js", "catalog.js", "history.js", "auth.js", "sync.js", "background.js"]);
+checkNoScopeConflict("i18n + lib.js + mailscan.js + llm.js + catalog.js + history.js + auth.js + background.js（service worker）", ["i18n.js", "i18n-en.js", "lib.js", "mailscan.js", "llm.js", "catalog.js", "history.js", "auth.js", "sync.js", "activity.js", "background.js"]);
 checkNoScopeConflict("i18n + lib.js + catalog.js + auth.js + popup.js（弹窗页）", ["i18n.js", "i18n-en.js", "lib.js", "catalog.js", "auth.js", "sync.js", "popup.js"]);
 
 console.log(`\n结果：${pass} 通过 / ${fail} 失败`);

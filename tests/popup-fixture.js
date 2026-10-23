@@ -12,7 +12,7 @@ function replyToMessage(message, store, options) {
     store.subs.push({ ...message.sub });
   }
   if (message.type === "CATALOG_ADD") {
-    const sub = { id: "catalog-test", catalogId: message.id, name: "Netflix", urlPattern: "netflix.com", mode: "activity" };
+    const sub = { id: "catalog-test", catalogId: message.id, name: "YouTube Premium", urlPattern: "youtube.com", mode: "activity" };
     store.subs.push(sub);
     return { ok: true, sub };
   }

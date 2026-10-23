@@ -17,7 +17,7 @@ function run(pagesResults, opts) {
   };
   const ctx = { console, chrome, setTimeout, clearTimeout, Promise, Date, JSON, Math, Set, Map, importScripts: () => {} };
   ctx.globalThis = ctx; vm.createContext(ctx);
-  for (const f of ["i18n.js", "i18n-en.js", "lib.js", "mailscan.js", "llm.js", "catalog.js", "history.js", "auth.js", "sync.js", "background.js"]) vm.runInContext(fs.readFileSync(path.join(dir, f), "utf8"), ctx);
+  for (const f of ["i18n.js", "i18n-en.js", "lib.js", "mailscan.js", "llm.js", "catalog.js", "history.js", "auth.js", "sync.js", "activity.js", "background.js"]) vm.runInContext(fs.readFileSync(path.join(dir, f), "utf8"), ctx);
   return new Promise((resolve) => {
     listeners.msg({ type: "MAIL_SCAN_START", account: "1", pages: "5" }, {}, async (resp) => {
       for (let i = 0; i < 300 && resp.ok && (!store.mailScan || store.mailScan.status === "running"); i++) await new Promise(r => setTimeout(r, 10));

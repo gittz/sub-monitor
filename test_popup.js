@@ -24,8 +24,8 @@ function document_click(w, sel) { w.document.querySelector(sel).click(); }
 const store = { subs: [{ id: "1", name: "Notion", urlPattern: "notion.so", mode: "browser", lastUsed: NOW },
   { id: "2", name: "百度网盘", catalogId: "baidu-pan", urlPattern: "pan.baidu.com", mode: "browser", lastUsed: NOW,
     account: { status: "ok", plan: { label: "超级会员 SVIP", paid: true }, storage: { pct: 2, label: "120 GB / 5 TB", totalGB: 5120 } } },
-  { id: "3", name: "Spotify", catalogId: "spotify", urlPattern: "spotify.com", mode: "browser", lastUsed: NOW, account: { status: "logged_out" } }],
-  records: [{ url: "https://www.netflix.com/browse", hostname: "www.netflix.com", time: NOW - DAY }], mailScan, mailIgnored: ["apple.com|apple"] };
+  { id: "3", name: "B站大会员", catalogId: "bilibili", urlPattern: "bilibili.com", mode: "browser", lastUsed: NOW, account: { status: "logged_out" } }],
+  records: [{ url: "https://www.youtube.com/", hostname: "www.youtube.com", time: NOW - DAY }], mailScan, mailIgnored: ["apple.com|apple"] };
 w.chrome = {
   runtime: { sendMessage: (m, cb) => { sent.push(m); setTimeout(() => cb(m.type === "GET_STATE"
       ? { ok: true, ...store, lastCheck: null, paused: false, subLimit: 5, guestLimit: 5, auth: null, googleLogin: true, providers: [{ key: "youtube", name: "YouTube", verified: true, note: "" }], noActivityPage: [] }
@@ -76,8 +76,8 @@ setTimeout(async () => {
   w.document.querySelector('.tab[data-view="add"]').click();
   t("手动打开添加页会清掉预填提示", $("prefillNote").hidden && $("f-name").value === "");
   t("添加页包含四种方式：常见服务 / 浏览记录发现 / 邮箱发现 / 手动添加", !!$("sec-known") && !!$("sec-history") && !!$("sec-mail") && !!$("sec-manual") && !w.document.querySelector('[data-view="mail"]'));
-  $("f-url").value = "netflix.com"; $("f-url").dispatchEvent(new w.Event("input"));
-  t("手动填的网址是收录服务 → 提示用常见服务添加", !$("catalogHint").hidden && /Netflix/.test($("catalogHint").textContent));
+  $("f-url").value = "youtube.com"; $("f-url").dispatchEvent(new w.Event("input"));
+  t("手动填的网址是收录服务 → 提示用常见服务添加", !$("catalogHint").hidden && /YouTube/.test($("catalogHint").textContent));
   $("f-url").value = "mymagicapp.io"; $("f-url").dispatchEvent(new w.Event("input")); $("f-name").value = ""; $("f-url").dispatchEvent(new w.Event("blur"));
   t("没收录的网址：不提示，名称自动填域名", $("catalogHint").hidden && $("f-name").value === "Mymagicapp");
   t("月费旁边有币种可选（人民币 / 美元 / 港币…）", $("f-currency").tagName === "SELECT" && [...$("f-currency").options].map(o => o.value).join(",").indexOf("¥,$,HK$") === 0);
@@ -88,7 +88,7 @@ setTimeout(async () => {
   const sv = sent.find(m => m.type === "SAVE_SUB");
   t("手动添加：浏览器访问型，只统计访问", sv && sv.sub.mode === "browser" && sv.sub.urlPattern === "mymagicapp.io");
   t("保存时带上选的币种", sv && sv.sub.currency === "HK$" && sv.sub.price === 38);
-  w.resetForm({ id: "x9", name: "爱奇艺", catalogId: "iqiyi", urlPattern: "iqiyi.com", price: 25 });
+  w.resetForm({ id: "x9", name: "腾讯视频", catalogId: "tencent-video", urlPattern: "v.qq.com", price: 25 });
   t("编辑收录的国内服务：币种默认人民币", $("f-currency").value === "¥");
   w.resetForm({ id: "x8", name: "Foo", urlPattern: "foo.com", price: 5, currency: "€" });
   t("编辑时显示订阅原来的币种", $("f-currency").value === "€");
@@ -101,12 +101,12 @@ setTimeout(async () => {
   t("没有 Gmail 接口模式的选项了", !$("m-source") && !$("m-client"));
 
   // 常见服务
-  t("从浏览记录发现：最近访问过 Netflix → 添加按钮", /Netflix/.test($("discList").textContent) && !!$("discList").querySelector('[data-cat="netflix"]'));
+  t("从浏览记录发现：最近访问过 YouTube → 添加按钮", /YouTube/.test($("discList").textContent) && !!$("discList").querySelector('[data-cat="youtube"]'));
   const cards = $("catGrid").querySelectorAll(".ad-card");
-  t("目录列出全部服务，已添加的标记为已添加", cards.length === 29 && $("catGrid").querySelectorAll(".ad-card.added").length === 2);
+  t("目录列出全部服务，已添加的标记为已添加", cards.length === 6 && $("catGrid").querySelectorAll(".ad-card.added").length === 2);
   t("分类标签：全部 + 4 类", $("catCats").querySelectorAll("span").length === 5);
   $("catCats").querySelectorAll("span")[3].click();
-  t("点分类只显示该类", !/Netflix/.test($("catGrid").textContent) && /爱奇艺/.test($("catGrid").textContent));
+  t("点分类只显示该类", !/YouTube/.test($("catGrid").textContent) && /腾讯视频/.test($("catGrid").textContent));
   $("catCats").querySelectorAll("span")[0].click();
   $("catSearch").value = "网盘"; $("catSearch").dispatchEvent(new w.Event("input"));
   t("按分类名/名字搜索", /百度网盘/.test($("catGrid").textContent));
@@ -125,7 +125,7 @@ setTimeout(async () => {
     t("平时没有「诊断」按钮", !btn() && !/>诊断</.test($("subList").innerHTML));
     sent.length = 0;
     $("subList").querySelector('[data-chk="2"]').dispatchEvent(new w.MouseEvent("click", { bubbles: true, altKey: true }));
-    await new Promise(r => setTimeout(r, 30));
+    await new Promise(r => setTimeout(r, 80));
     const opened = !!$("subList").querySelector(".cdiag") && btn() && btn().textContent === "收起诊断";
     t("按住 Alt 点「检查」= 诊断：发 CATALOG_DIAGNOSE，不发 RUN_CHECK", opened && sent.some(m => m.type === "CATALOG_DIAGNOSE") && !sent.some(m => m.type === "RUN_CHECK"));
     btn().click(); await new Promise(r => setTimeout(r, 10));
@@ -139,8 +139,8 @@ setTimeout(async () => {
     const cap = w.subCaption;
     t("列表小字：Claude 显示套餐和本周额度", cap({ provider: "claude", llm: { plan: { label: "Pro" }, usage: { fiveHour: 62, week: 47 } } }) === "Pro · 本周额度 47%");
     t("列表小字：ChatGPT 没有额度时显示近 7 天对话数", cap({ provider: "chatgpt", llm: { plan: { label: "Free" }, stats: { convs7: 0 } } }) === "Free · 近 7 天 0 个对话");
-    t("列表小字：Netflix 显示套餐和续费日", /^Standard · \d\d\/\d\d 续费$/.test(cap({ catalogId: "netflix", account: { status: "ok", plan: { label: "Standard" }, renewAt: Date.now() + 5 * DAY } })));
-    t("列表小字：没登录读不到时退回分类", cap({ catalogId: "netflix", account: { status: "logged_out", plan: { label: "Standard" } } }) === "影音娱乐");
+    t("列表小字：收录服务显示套餐和续费日", /^Premium · \d\d\/\d\d 续费$/.test(cap({ catalogId: "youtube", account: { status: "ok", plan: { label: "Premium" }, renewAt: Date.now() + 5 * DAY } })));
+    t("列表小字：没登录读不到时退回分类", cap({ catalogId: "youtube", account: { status: "logged_out", plan: { label: "Premium" } } }) === "影音娱乐");
   }
   {
     const vs = { last: Date.now(), d7: 27, d30: 92 };
@@ -157,13 +157,13 @@ setTimeout(async () => {
   t("未登录：提示不代表没在用，给「打开账户页」", /不代表你没在用/.test(sub2) && /data-copen="3"/.test(sub2));
   sent.length = 0;
   $("catSearch").value = ""; $("catSearch").dispatchEvent(new w.Event("input"));
-  $("catGrid").querySelector('[data-cat="netflix"]').click();
+  $("catGrid").querySelector('[data-cat="youtube"]').click();
   await new Promise(r => setTimeout(r, 20));
   t("添加中：卡片转圈显示「正在读取…」，底部有加载提示", !!$("catGrid").querySelector(".ad-card.busy") && /正在读取/.test($("catGrid").textContent) &&
-    $("busyToast") && !$("busyToast").hidden && /正在添加 Netflix/.test($("busyToast").textContent));
+    $("busyToast") && !$("busyToast").hidden && /正在添加 YouTube/.test($("busyToast").textContent));
   await new Promise(r => setTimeout(r, 100));
-  t("添加完：卡片恢复，提示换成结果", !$("catGrid").querySelector(".ad-card.busy") && /Netflix/.test($("busyToast").textContent) && !/正在添加/.test($("busyToast").textContent));
-  t("点服务名：申请权限后发 CATALOG_ADD", sent.some(m => m.type === "CATALOG_ADD" && m.id === "netflix"));
+  t("添加完：卡片恢复，提示换成结果", !$("catGrid").querySelector(".ad-card.busy") && /YouTube/.test($("busyToast").textContent) && !/正在添加/.test($("busyToast").textContent));
+  t("点服务名：申请权限后发 CATALOG_ADD", sent.some(m => m.type === "CATALOG_ADD" && m.id === "youtube"));
   t("已经有权限：不弹授权，也不用登记，直接添加", !sent.some(m => m.type === "PENDING_GRANT" || m.type === "OPEN_GRANT_WINDOW"));
   // 登录
   t("未登录：顶部显示「登录」，订阅数显示 3/5", /登录/.test($("acct").textContent) && $("cnt").textContent === "3/5");
@@ -281,7 +281,7 @@ setTimeout(async () => {
   w2.chrome = {
     runtime: { sendMessage: (m, cb) => { sent2.push(m); setTimeout(() => cb(m.type === "GET_STATE"
         ? { ok: true, ...store, lastCheck: null, paused: false, subLimit: 5, guestLimit: 5, auth: null, googleLogin: true, providers: [], noActivityPage: [],
-            pendingGrant: { action: "catalog", id: "netflix", origins: ["https://netflix.com/*"], permissions: [], at: Date.now() } }
+            pendingGrant: { action: "catalog", id: "youtube", origins: ["https://youtube.com/*"], permissions: [], at: Date.now() } }
         : { ok: true }), 0); } },
     storage: { onChanged: { addListener() {} } },
     permissions: { request: async (q) => { reqArg = q; return true; }, contains: async () => false },
@@ -293,10 +293,10 @@ setTimeout(async () => {
   for (const f of ["i18n.js", "i18n-en.js", "lib.js", "catalog.js", "auth.js", "sync.js", "popup-account.js", "popup-mail-dialog.js", "popup-mail.js", "popup.js"]) w2.eval(fs.readFileSync(path.join(dir, f), "utf8"));
   await new Promise(r => setTimeout(r, 60));
   const dlg2 = w2.document.querySelector(".dlg-mask");
-  t("授权小窗口：说明要授权什么，有「继续授权」", !!dlg2 && /Netflix/.test(dlg2.textContent) && /继续授权/.test(dlg2.textContent) && !w2.document.getElementById("view-add").hidden);
+  t("授权小窗口：说明要授权什么，有「继续授权」", !!dlg2 && /YouTube/.test(dlg2.textContent) && /继续授权/.test(dlg2.textContent) && !w2.document.getElementById("view-add").hidden);
   w2.document.querySelector(".dlg-btn.primary").click();
   await new Promise(r => setTimeout(r, 40));
-  t("点「继续授权」：在小窗口里申请权限，授权后让后台接着做，窗口不关", reqArg && reqArg.origins[0] === "https://netflix.com/*" &&
+  t("点「继续授权」：在小窗口里申请权限，授权后让后台接着做，窗口不关", reqArg && reqArg.origins[0] === "https://youtube.com/*" &&
     sent2.some(m => m.type === "PENDING_GRANT" && m.inWindow) && sent2.some(m => m.type === "RESUME_PENDING") && !w2.__closed);
 
   // 英文界面：浏览器语言不是中文时默认英文

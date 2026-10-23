@@ -451,6 +451,11 @@
                background:var(--warm-soft); color:#4b5563; font-size:12.5px; text-align:left; cursor:pointer; }
   .sv-banner:hover { background:#f6ead6; }
   .sv-banner span { flex:1; }
+  .grantbar { display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:10px; background:#eef4ff; color:#1e3a8a; font-size:12.5px; line-height:1.5; }
+  .grantbar[hidden] { display:none; }
+  .grantbar span { flex:1; min-width:0; }
+  .grantbar button { flex:none; }
+  @media (prefers-color-scheme: dark) { .grantbar { background:rgba(59,130,246,.15); color:#bfdbfe; } }
   .sv-watched { display:flex; align-items:baseline; gap:8px; margin-top:8px; padding:8px 10px; border-radius:8px; background:var(--ad-soft, #f6f6f4); font-size:12px; min-width:0; }
   .sv-watched span { flex:none; color:var(--muted); }
   .sv-watched b { flex:1; min-width:0; font-weight:600; color:var(--fg); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -656,6 +661,7 @@
       <span id="idleBannerText"></span>
       <svg class="arr" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
     </button>
+    <div class="grantbar sv-callout" id="grantBar" hidden><span id="grantBarText"></span><button type="button" class="ad-btn sm" id="grantAll">一键授权</button></div>
     <div class="limitbar sv-callout" id="limitBar" hidden></div>
     <div class="histbar sv-callout" id="syncBar" hidden></div>
     <div class="sv-table">

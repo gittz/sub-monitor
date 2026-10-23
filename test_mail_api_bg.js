@@ -19,7 +19,7 @@ const chrome = {
 const ctx = { console, chrome, setTimeout, clearTimeout, Promise, Date, JSON, Math, Set, Map, URL, URLSearchParams,
   fetch: async (u) => { fetches.push(u); throw new Error("no network"); }, importScripts: () => {} };
 ctx.globalThis = ctx; vm.createContext(ctx);
-for (const f of ["i18n.js", "i18n-en.js", "lib.js", "mailscan.js", "llm.js", "catalog.js", "history.js", "auth.js", "sync.js", "background.js"]) vm.runInContext(fs.readFileSync(path.join(dir, f), "utf8"), ctx);
+for (const f of ["i18n.js", "i18n-en.js", "lib.js", "mailscan.js", "llm.js", "catalog.js", "history.js", "auth.js", "sync.js", "activity.js", "background.js"]) vm.runInContext(fs.readFileSync(path.join(dir, f), "utf8"), ctx);
 const t = (n, c) => { console.log((c ? "  ✓ " : "  ✗ ") + n); if (!c) process.exitCode = 1; };
 const manifest = JSON.parse(fs.readFileSync(path.join(dir, "manifest.json"), "utf8"));
 (async () => {

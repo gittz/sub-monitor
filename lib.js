@@ -150,7 +150,18 @@ function visitStats(log, now) {
   };
 }
 
+// 这个订阅当前是否有可靠的「观看时间」信号：观看记录读取正常，且上次读到了具体时间或日期。
+// 只有一串条目、没有时间的记录不算（不靠「列表变没变」推断，推断不稳）。
+// timeOk 是 v2.28.1 起才有的字段；以前的数据看有没有读到过观看日期（lastWatched）
+function hasWatchTime(s) {
+  if (!s || s.mode !== "activity" || (s.signal && s.signal.ok === false)) return false;
+  if (s.timeOk === true) return true;
+  if (s.timeOk === false) return false;
+  return !!s.lastWatched;
+}
+
 globalThis.SubLib = {
+  hasWatchTime,
   DAY, DEFAULT_IDLE_DAYS, SIGNAL_REASONS,
   normalizeDomain, hostMatches, parseLabelToTs, computeStatus, wastedPerMonth, shouldWarnSignal,
   VISIT_GAP, mergeVisits, visitStats

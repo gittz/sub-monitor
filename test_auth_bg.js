@@ -27,7 +27,7 @@ function boot(fetchImpl, opts) {
   const ctx = { console, chrome, fetch: fetchImpl, setTimeout: (f, ms) => realTimeout(f, Math.min(ms || 0, 5)), clearTimeout, Promise, Date, JSON, Math, Set, Map, URL, URLSearchParams, RegExp, importScripts: () => {} };
   ctx.globalThis = ctx; vm.createContext(ctx);
   ctx.crypto = require("crypto").webcrypto;
-  for (const f of ["i18n.js", "i18n-en.js", "lib.js", "mailscan.js", "llm.js", "catalog.js", "history.js", "auth.js", "sync.js", "background.js"]) {
+  for (const f of ["i18n.js", "i18n-en.js", "lib.js", "mailscan.js", "llm.js", "catalog.js", "history.js", "auth.js", "sync.js", "activity.js", "background.js"]) {
     let src = fs.readFileSync(path.join(__dirname, f), "utf8");
     // 测试不依赖 auth.js 里实际填的 Client ID
     if (f === "auth.js") src = src.replace(/const GOOGLE_CLIENT_ID = "[^"]*";/, `const GOOGLE_CLIENT_ID = "${opts.clientId || ""}";`);
@@ -81,7 +81,7 @@ async function suite(name, fetchImpl, email) {
   t("第 6 个被拦住", !r.ok && r.reason === "limit" && r.limit === 5 && B.store.subs.length === 5, r);
   r = await B.send({ type: "SAVE_SUB", sub: Object.assign(sub(0), { name: "改名" }) });
   t("满了也能编辑已有的订阅", r.ok && B.store.subs[0].name === "改名");
-  r = await B.send({ type: "CATALOG_ADD", id: "netflix" });
+  r = await B.send({ type: "CATALOG_ADD", id: "youtube" });
   t("从服务目录添加也被拦住，而且不会白白打开网页", r.reason === "limit" && B.opened.length === 0, r);
   r = await B.send({ type: "LLM_QUICK_ADD", kind: "claude" });
   t("大模型一键添加也被拦住", r.reason === "limit" && B.opened.length === 0, r);

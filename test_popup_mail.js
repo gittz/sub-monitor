@@ -66,11 +66,11 @@ test("保存失败不产生假成功，显示可见错误", async t => {
 });
 
 test("已收录服务继续走原目录添加和权限流程", async t => {
-  const ui = await openMail(t, candidate({key: "netflix", name: "Netflix", domain: "netflix.com"}));
+  const ui = await openMail(t, candidate({key: "youtube", name: "YouTube", domain: "youtube.com"}));
   ui.$("[data-madd]").click(); await delay(100);
   assert.equal(ui.messages.filter(message => message.type === "CATALOG_ADD").length, 1);
   assert.equal(ui.messages.some(message => message.type === "SAVE_SUB"), false);
-  assert.equal(ui.store.subs[0].catalogId, "netflix");
+  assert.equal(ui.store.subs[0].catalogId, "youtube");
   assert.notEqual(ui.window.document.activeElement, ui.window.document.body);
   assert.equal(ui.$("#sec-mail").hidden, false);
 });

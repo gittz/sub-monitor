@@ -7,7 +7,7 @@
 // 注意：importScripts 载入的脚本与本文件共享同一个全局作用域，
 // lib.js 里的 DAY / hostMatches / parseLabelToTs / computeStatus 等可直接使用。
 // 千万不要再用 const 解构一遍同名变量 —— 会触发 "Identifier has already been declared"。
-importScripts("i18n.js", "i18n-en.js", "lib.js", "mailscan.js", "llm.js", "catalog.js", "history.js", "auth.js", "sync.js");
+importScripts("i18n.js", "i18n-en.js", "lib.js", "mailscan.js", "llm.js", "catalog.js", "history.js", "auth.js", "sync.js", "activity.js");
 // 通知文案跟界面语言走：用户在界面里切换过就用他的选择，否则跟浏览器语言
 I18N.initFromStorage();
 if (chrome.storage.onChanged) chrome.storage.onChanged.addListener((ch, area) => { if (area === "local" && ch.uiLang) I18N.initFromStorage(); });
@@ -187,26 +187,6 @@ const CATALOG = {
     verified: true,
     note: "读取观看历史。需在本浏览器登录，且未关闭/暂停观看记录。"
   },
-  netflix: {
-    name: "Netflix",
-    domain: "netflix.com",
-    activityUrl: "https://www.netflix.com/settings/viewing-history",
-    strategy: "generic",
-    idPattern: "/(?:title|watch)/(\\d+)",
-    loginUrlPattern: "/login|/signin",
-    verified: false,
-    note: "官方帮助中心确认该页面存在，且按当前选中的「个人档案」显示。页面结构未实测，请先点「诊断」验证。"
-  },
-  primevideo: {
-    name: "Prime Video",
-    domain: "primevideo.com",
-    activityUrl: "https://www.primevideo.com/settings/watch-history",
-    strategy: "generic",
-    idPattern: "/detail/([A-Za-z0-9]+)",
-    loginUrlPattern: "/ap/signin|/gp/sign-in",
-    verified: false,
-    note: "Amazon 官方页面。页面结构未实测，请先点「诊断」验证。"
-  },
   claude: {
     name: "Claude",
     domain: "claude.ai",
@@ -235,19 +215,24 @@ const CATALOG = {
     name: "B站",
     domain: "bilibili.com",
     activityUrl: "https://www.bilibili.com/account/history",
-    strategy: "bilibili",
-    idPattern: "/video/(BV[0-9A-Za-z]+)",
+    strategy: "api",
+    // B站网页版自己用的历史记录接口：每条带 view_at（观看时间，秒）和标题
+    api: {
+      urls: ["https://api.bilibili.com/x/web-interface/history/cursor?max=30&view_at=0",
+             "https://www.bilibili.com/x/web-interface/history/cursor?max=30&view_at=0"],
+      list: ["data.list", "data"],
+      id: ["history.bvid", "bvid", "history.aid", "aid", "history.epid", "epid", "history.oid", "oid", "id", "uri"],
+      idPattern: "((?:BV)[0-9A-Za-z]+|^\\d+$)",
+      ts: ["view_at", "viewAt", "view_at_ms", "timestamp", "time"],
+      title: ["title", "show_title", "long_title", "history.title"],
+      codePath: "code", okCodes: [0], loggedOutCodes: [-101, -400], loggedOutText: "登录|登陆|login",
+      historyOffText: "(历史记录|观看记录).*(关闭|暂停)",
+      fallbackLink: { pattern: "(?:/video/((?:BV)?[0-9A-Za-z]+)|/bangumi/play/(ep\\d+))" }
+    },
     loginUrlPattern: "passport\\.bilibili\\.com|/login",
     verified: true,
     note: "读取 B站历史记录接口返回的观看时间和视频名称（网页、App、电视上看的都会同步到这里）。需在本浏览器登录 B站。"
   },
-  custom: {
-    name: "自定义（自己填活动页地址）",
-    activityUrl: "",
-    strategy: "generic",
-    verified: false,
-    note: "填入该服务「最近活动/播放记录」页面的地址。可选填条目 ID 的正则和容器选择器，再用「诊断」看抓到了什么。"
-  }
 };
 
 // 已知【没有】网页版活动页的服务 —— 与其让用户白试，不如直接说清楚该怎么办
@@ -397,101 +382,6 @@ function youtubeExtract() {
 
 // B站历史记录页会调用 /x/web-interface/history/cursor，接口同时给出视频名称和 view_at。
 // 直接在页面主世界里请求，沿用当前标签页的登录 Cookie，不把记录发到插件之外。
-async function bilibiliExtract() {
-  const out = { ids: [], topLabel: "", loggedOut: null, historyOff: false, pageUrl: location.href,
-                lastTs: 0, count: 0, sample: [], sampleTitles: [], strategy: "bilibili", source: "api" };
-  const cleanTitle = (v) => String(v == null ? "" : v).replace(/<[^>]*>/g, "").replace(/&amp;/g, "&").trim();
-  const tsOf = (v) => {
-    if (v == null || v === "") return 0;
-    const n = Number(v);
-    if (n === n && n !== Infinity && n !== -Infinity && n > 0) return n < 100000000000 ? n * 1000 : n;
-    const t = Date.parse(String(v));
-    return isNaN(t) ? 0 : t;
-  };
-  const idOf = (item) => {
-    const h = item && item.history || {};
-    const raw = h.bvid || item.bvid || h.aid || item.aid || h.epid || item.epid || h.oid || item.oid ||
-                h.cid || item.cid || item.id || item.uri || item.link;
-    if (raw == null || raw === "") return "";
-    const s = String(raw);
-    const m = s.match(/(?:video\/|av|BV)([0-9A-Za-z]+)/i);
-    return m ? (/^BV/i.test(s) ? "BV" + m[1] : m[1]) : s;
-  };
-  const items = [];
-  const addItems = (list) => {
-    if (!Array.isArray(list)) return;
-    list.forEach(item => {
-      if (!item || typeof item !== "object") return;
-      const id = idOf(item);
-      const ts = tsOf(item.view_at || item.viewAt || item.view_at_ms || item.timestamp || item.time);
-      const title = cleanTitle(item.title || item.show_title || item.long_title ||
-        (item.history && (item.history.title || item.history.show_title)));
-      if (id || title) items.push({ id: id || title, ts, title });
-    });
-  };
-
-  const urls = [
-    "https://api.bilibili.com/x/web-interface/history/cursor?max=30&view_at=0",
-    "https://www.bilibili.com/x/web-interface/history/cursor?max=30&view_at=0"
-  ];
-  let apiReady = false;
-  for (const url of urls) {
-    try {
-      if (typeof fetch !== "function") break;
-      const resp = await fetch(url, { credentials: "include", cache: "no-store", headers: { Accept: "application/json" } });
-      const json = await resp.json();
-      const rawCode = json && json.code;
-      const code = rawCode == null ? null : Number(rawCode);
-      const message = String((json && (json.message || json.msg)) || "");
-      if (code === -101 || code === -400 || /登录|登陆|未登录|请先登录|login/i.test(message)) {
-        out.loggedOut = true;
-        continue;
-      }
-      if (code != null && code !== 0) continue;
-      const data = json && json.data;
-      if (data && Array.isArray(data.list)) { apiReady = true; addItems(data.list); }
-      if (Array.isArray(data)) { apiReady = true; addItems(data); }
-      if (apiReady) break;
-    } catch (e) { /* API 地址或跨域策略变化时继续尝试下一个 */ }
-  }
-
-  // 接口不可用时仍尽量沿用通用页面抓取，至少保留视频 ID 和名称。
-  if (!items.length && !apiReady) {
-    out.source = "页面";
-    try {
-      document.querySelectorAll("a[href]").forEach(a => {
-        const href = a.getAttribute("href") || "";
-        const m = href.match(/(?:\/video\/((?:BV)?[0-9A-Za-z]+)|\/bangumi\/play\/(ep\d+))/i);
-        if (!m) return;
-        const id = m[1] || m[2];
-        const title = cleanTitle((a.getAttribute && (a.getAttribute("title") || a.getAttribute("aria-label"))) || a.textContent);
-        if (!items.some(x => x.id === id)) items.push({ id, ts: 0, title });
-      });
-    } catch (e) {}
-  }
-
-  items.sort((a, b) => b.ts - a.ts);
-  const seen = new Set();
-  const uniq = items.filter(x => {
-    const k = x.id + "@" + x.ts;
-    if (seen.has(k)) return false;
-    seen.add(k);
-    return true;
-  }).slice(0, 50);
-  out.ids = uniq.map(x => x.id + (x.ts ? "@" + Math.floor(x.ts / 60000) : ""));
-  out.lastTs = uniq.reduce((m, x) => Math.max(m, x.ts), 0);
-  out.count = uniq.length;
-  out.sample = uniq.filter(x => x.title).slice(0, 3).map(x => x.title);
-  out.sampleTitles = out.sample.slice();
-  if (!out.ids.length && out.loggedOut !== true) {
-    try {
-      const text = (document.body && document.body.innerText) || "";
-      if (/历史记录.*(关闭|暂停)|观看记录.*(关闭|暂停)/i.test(text)) out.historyOff = true;
-    } catch (e) {}
-  }
-  return out;
-}
-
 // 把目录项和用户在订阅里填的覆盖值合成一份最终配置
 function getProviderConfig(sub) {
   const base = CATALOG[sub && sub.provider] || null;
@@ -505,7 +395,8 @@ function getProviderConfig(sub) {
     containerSelector: sub.containerSelector || base.containerSelector || null,
     waitMs: base.waitMs || 0,
     labels: !!base.labels,
-    loginUrlPattern: base.loginUrlPattern || null
+    loginUrlPattern: base.loginUrlPattern || null,
+    api: base.api || null
   };
 }
 
@@ -539,8 +430,8 @@ async function readActivity(cfg) {
       world: "MAIN",
       ...(cfg.strategy === "youtube"
         ? { func: youtubeExtract }
-        : cfg.strategy === "bilibili"
-        ? { func: bilibiliExtract }
+        : cfg.strategy === "api"
+        ? { func: ActivityLib.apiExtract, args: [cfg.api || {}] }
         : { func: genericExtract, args: [{
             idPattern: cfg.idPattern,
             containerSelector: cfg.containerSelector,
@@ -663,7 +554,6 @@ async function applyActivityResult(sub, r) {
   if (!r.ids || !r.ids.length) return markFail(r.historyOff ? "history_off" : "read_failed");
 
   // 读取成功 → 信号恢复
-  const wasBroken = sub.signal.ok === false;
   sub.signal = { ok: true, reason: null, since: null, lastOk: now, fails: 0 };
   sub.signalNotified = null;
 
@@ -680,30 +570,16 @@ async function applyActivityResult(sub, r) {
     // exact：有具体观看时间（腾讯视频接口）；否则只知道是哪一天（YouTube、优酷按天分组）
     if (ttl) sub.watchTitle = { title: String(ttl).slice(0, 80), at: watched, exact: r.lastTs > 0 };
     sub.watchAt = now;          // 什么时候读的观看记录（多台设备同步时以读得晚的为准）
+    sub.timeOk = true;          // 这次读到了观看时间（A：接口给的具体时间 / B：页面上的日期）
     sub.lastUsed = watched;
     sub.lastUsedFloor = false;
     sub.sig = sig;
     return true;
   }
 
-  // 中断期间如果对方有了新记录，说明这段时间用户是在用的。
-  // 我们不知道具体哪天用的，按"最近"算 —— 宁可漏提醒，也不要误报。
-  if (wasBroken && sub.sig && sig !== sub.sig) {
-    sub.lastUsed = now;
-    sub.notified = null;
-    sub.sig = sig;
-    return true;
-  }
-
-  if (sub.sig && sig !== sub.sig) {
-    // 指纹变化 → 确认在用
-    sub.lastUsed = now;
-    sub.notified = null;
-  } else if (!sub.sig) {
-    // 首次检查：尝试用日期标签估算；解析不出就只建立基线，不下结论（避免首次误判）
-    const est = parseLabelToTs(r.topLabel, now);
-    if (est) sub.lastUsed = est;
-  }
+  // 读到了记录，但里面没有观看时间（只有一串条目）：不靠「列表变没变」去推断用没用——推断不稳。
+  // 这种情况等同于没有观看记录信号：最近使用交给浏览器访问判断，指纹只留给诊断看。
+  sub.timeOk = false;
   sub.sig = sig;
   return true;
 }
@@ -808,6 +684,48 @@ async function runMailScan(opts) {
 // 在已登录的网站页面里读套餐、对话时间、用量。优先借用你已经打开的该网站标签页；
 // 没有的话在后台开一个，读完即关。只读时间和数字，不读对话标题和内容。
 const LLM_ORIGINS = { claude: "https://claude.ai/*", chatgpt: "https://chatgpt.com/*" };
+
+// ---------- 这台电脑上还没授权的订阅 ----------
+// 网站权限是每台电脑、每个浏览器各自的：别的设备同步过来的订阅，在这里要重新授权才能读套餐 / 使用记录。
+function originsForSub(s) {
+  if (!s) return [];
+  if (s.mode === "activity" && LLM_ORIGINS[s.provider]) return [LLM_ORIGINS[s.provider]];
+  const cp = s.catalogId && SubCatalog.BY_ID[s.catalogId];
+  if (cp && !cp.special) return SubCatalog.originsOf(cp);
+  return [];
+}
+async function missingGrants(subs) {
+  subs = subs || await getSubs();
+  const out = [];
+  for (const s of subs) {
+    const origins = originsForSub(s);
+    if (!origins.length) continue;
+    let has = false;
+    try { has = await chrome.permissions.contains({ origins }); } catch (e) { has = false; }
+    if (!has) out.push({ id: s.id, name: s.name, origins });
+  }
+  return out;
+}
+// 同步带来了需要授权的订阅：发一次通知（同一批只提醒一次）。点通知打开授权小窗口
+async function notifyMissingGrants() {
+  const miss = await missingGrants();
+  if (!miss.length) return;
+  const key = miss.map(x => x.id).sort().join(",");
+  const { grantNotified } = await chrome.storage.local.get(["grantNotified"]);
+  if (grantNotified === key) return;
+  await chrome.storage.local.set({ grantNotified: key });
+  notify("needgrant", { type: "basic", iconUrl: "icons/icon128.png",
+    title: T("有 {n} 个订阅需要授权", { n: miss.length }),
+    message: T("这些订阅是从其他设备同步来的，在这台电脑上授权后才能读取套餐和使用记录。点此授权。"),
+    priority: 1 });
+}
+async function openGrantWindow() {
+  const w = await chrome.windows.getLastFocused().catch(() => null);
+  const W = 520, H = 720;
+  const opt = { url: chrome.runtime.getURL("popup.html?win=1&grant=1"), type: "popup", width: W, height: H, focused: true };
+  if (w && w.left != null && w.width) { opt.left = Math.max(0, w.left + w.width - W - 24); opt.top = Math.max(0, (w.top || 0) + 72); }
+  await chrome.windows.create(opt);
+}
 
 async function readLlm(kind) {
   const site = LlmLib.LLM_SITES[kind];
@@ -998,7 +916,8 @@ function visitCountsAsUse(s) {
   if (s.mode !== "activity") return false;
   const c = CATALOG[s.provider];
   if (!c || c.strategy === "llm") return false;
-  return !(s.sig && s.signal && s.signal.ok !== false);
+  // 观看记录能给出观看时间时以它为准；读不到、或记录里没有时间时，按浏览器访问判断
+  return !SubLib.hasWatchTime(s);
 }
 function subDomains(s) {
   const cp = s.catalogId && SubCatalog.BY_ID[s.catalogId];
@@ -1166,7 +1085,9 @@ function syncNow(reason) {
 }
 // 同步带来的新订阅：在后台检查一次（只检查这几个），不等它完成
 function checkNewFromCloud(ids) {
-  if (ids && ids.length) setTimeout(() => { runCheck(ids.slice()).catch(() => {}); }, 2000);
+  if (!ids || !ids.length) return;
+  setTimeout(() => { runCheck(ids.slice()).catch(() => {}); }, 2000);
+  notifyMissingGrants().catch(() => {});
 }
 async function syncOnce(reason) {
   const st = await getSyncState();
@@ -1364,6 +1285,7 @@ async function resumePendingOnce() {
     else if (pg.action === "llm") res = await llmQuickAdd(pg.id);
     else if (pg.action === "diag") res = await catalogDiagnose(pg.id);
     else if (pg.action === "recheck") { await runCheck([pg.id]); res = { ok: true }; }
+    else if (pg.action === "grantAll") { await runCheck((pg.params && pg.params.ids) || []); res = { ok: true }; }
     else if (pg.action === "history") res = await historyScan();
     else if (pg.action === "mail" && pg.params) {
       // 邮箱扫描本来就在后台跑、进度写在 storage 里，这里只负责把它启动起来
@@ -1377,12 +1299,12 @@ async function resumePendingOnce() {
   } catch (e) { res = { ok: false, reason: "read_failed" }; }
   await chrome.storage.local.set({ grantResult: Object.assign({ res }, base) });
   // 在授权小窗口里授权的：结果直接显示在小窗口里，不用再开弹窗或发通知
-  if (pg.inWindow) { if (pg.action === "recheck") await chrome.storage.local.remove("grantResult"); return; }
+  if (pg.inWindow) { if (pg.action === "recheck" || pg.action === "grantAll") await chrome.storage.local.remove("grantResult"); return; }
   // 弹窗已经关了：先试着重新打开它（Chrome 127+），打不开就发个通知
   let reopened = false;
   try { if (chrome.action && chrome.action.openPopup) { await chrome.action.openPopup(); reopened = true; } } catch (e) { reopened = false; }
-  if (pg.action === "recheck") await chrome.storage.local.remove("grantResult");
-  if (!reopened && pg.action !== "recheck") {
+  if (pg.action === "recheck" || pg.action === "grantAll") await chrome.storage.local.remove("grantResult");
+  if (!reopened && pg.action !== "recheck" && pg.action !== "grantAll") {
     const subs = await getSubs();
     const sub = (res && res.sub) || subs.find(x => x.id === pg.id);
     const name = (sub && sub.name) || (SubCatalog.BY_ID[pg.id] || {}).name || (LlmLib.LLM_SITES[pg.id] || {}).name || "";
@@ -1436,7 +1358,7 @@ function notifySignalLost(sub, reason, brokenDays) {
 }
 
 // 检查时读取活动记录 / 大模型数据会写回订阅的这些字段
-const REFRESH_FIELDS = ["watchTitle", "loginState", "lastChecked", "signal", "signalNotified", "sig", "lastUsed", "lastUsedFloor", "lastWatched", "watchAt", "notified", "llm",
+const REFRESH_FIELDS = ["watchTitle", "loginState", "timeOk", "lastChecked", "signal", "signalNotified", "sig", "lastUsed", "lastUsedFloor", "lastWatched", "watchAt", "notified", "llm",
                         "account", "price", "currency", "priceSource", "priceEstimated"];
 const CHECK_CONCURRENCY = 4;          // 同时最多读几个（每个读取可能要在后台开一个标签页）
 const ACCOUNT_FRESH_MS = 3 * DAY;     // 全部检查时，多久内读过的账户页不再重新打开
@@ -1653,6 +1575,15 @@ chrome.notifications.onClicked.addListener(async (id) => {
     return;
   }
   // 信号中断提醒 → 直接打开活动页，用户登录后下次检查即自动恢复
+  // 同步来的订阅需要授权 → 打开授权小窗口（授权框只能由用户点击触发，小窗口里点一下「继续授权」）
+  if (id === "needgrant") {
+    const miss = await missingGrants(subs);
+    if (!miss.length) return;
+    await chrome.storage.local.set({ pendingGrant: { action: "grantAll", id: null, origins: [...new Set([].concat(...miss.map(x => x.origins)))],
+      permissions: [], params: { ids: miss.map(x => x.id), names: miss.map(x => x.name) }, inWindow: true, at: Date.now() } });
+    openGrantWindow().catch(() => {});
+    return;
+  }
   if (id.startsWith("signal-")) {
     const s = subs.find(x => `signal-${x.id}` === id);
     const cfg = s && getProviderConfig(s);
@@ -1686,7 +1617,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               key: k, name: CATALOG[k].name, url: CATALOG[k].activityUrl, strategy: CATALOG[k].strategy,
               verified: !!CATALOG[k].verified, note: CATALOG[k].note || ""
             })),
-            noActivityPage: NO_ACTIVITY_PAGE });
+            noActivityPage: NO_ACTIVITY_PAGE,
+            needGrant: await missingGrants(subs) });
           break;
         }
         case "SAVE_SUB": {
@@ -1805,11 +1737,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         case "OPEN_GRANT_WINDOW": {
           // 工具栏弹窗里需要授权：Chrome 的授权框会把弹窗收起来，所以换到一个独立小窗口里授权
           try {
-            const w = await chrome.windows.getLastFocused().catch(() => null);
-            const W = 520, H = 720;
-            const opt = { url: chrome.runtime.getURL("popup.html?win=1&grant=1"), type: "popup", width: W, height: H, focused: true };
-            if (w && w.left != null && w.width) { opt.left = Math.max(0, w.left + w.width - W - 24); opt.top = Math.max(0, (w.top || 0) + 72); }
-            await chrome.windows.create(opt);
+            await openGrantWindow();
             sendResponse({ ok: true });
           } catch (e) { sendResponse({ ok: false }); }
           break;
@@ -1906,6 +1834,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         }
         case "RUN_CHECK": {
           if (msg.ids && msg.ids.length === 1) await clearPending("recheck", msg.ids[0]);
+          if (msg.grantAll) await clearPending("grantAll", null);
           const subs = await runCheck(msg.ids);
           sendResponse({ ok: true, subs });
           break;

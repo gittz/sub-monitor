@@ -20,7 +20,7 @@ function boot(fetchImpl) {
   const timers = [];
   const ctx = { console, chrome, fetch: fetchImpl, setTimeout: (f, ms) => { const h = realTimeout(f, Math.min(ms || 0, 30)); timers.push(h); return h; }, clearTimeout, Promise, Date, JSON, Math, Set, Map, URL, URLSearchParams, RegExp, TextEncoder, importScripts: () => {} };
   ctx.globalThis = ctx; ctx.crypto = require("crypto").webcrypto; vm.createContext(ctx);
-  for (const f of ["i18n.js", "i18n-en.js", "lib.js", "mailscan.js", "llm.js", "catalog.js", "history.js", "auth.js", "sync.js", "background.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, f), "utf8"), ctx);
+  for (const f of ["i18n.js", "i18n-en.js", "lib.js", "mailscan.js", "llm.js", "catalog.js", "history.js", "auth.js", "sync.js", "activity.js", "background.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, f), "utf8"), ctx);
   const send = (m) => new Promise(r => listeners.msg[0](m, {}, r));
   return { store, send, listeners, ctx };
 }
