@@ -203,6 +203,18 @@ const CATALOG = {
     verified: false,
     note: "读取套餐和对话时间（不读内容）。对话会跨设备同步，手机上用的也算。需要在本浏览器登录 chatgpt.com。建议用「我的订阅」页的一键添加。"
   },
+  gemini: {
+    name: "Gemini",
+    domain: "gemini.google.com",
+    activityUrl: "https://gemini.google.com/app",
+    strategy: "googleRpc",
+    kind: "chat",
+    // Gemini 网页版自己用的「最近对话」接口（MaZiqc）：每条 [对话ID, 标题, …, [最后更新时间 秒, 纳秒], …]。
+    // 不取标题（对话内容属于隐私），只取 ID 和时间
+    rpc: { rpcid: "MaZiqc", payload: [13, null, [0, null, 1]], sourcePath: "/app", list: [2], id: 0, ts: 5 },
+    verified: true,
+    note: "读取 Gemini 最近对话的更新时间（不读对话内容）。手机上用同一账号的对话也算。需在本浏览器登录 Google 账号。"
+  },
   tencent: {
     name: "腾讯视频",
     domain: "v.qq.com",
@@ -396,7 +408,9 @@ function getProviderConfig(sub) {
     waitMs: base.waitMs || 0,
     labels: !!base.labels,
     loginUrlPattern: base.loginUrlPattern || null,
-    api: base.api || null
+    api: base.api || null,
+    rpc: base.rpc || null,
+    kind: base.kind || null
   };
 }
 
@@ -432,6 +446,8 @@ async function readActivity(cfg) {
         ? { func: youtubeExtract }
         : cfg.strategy === "api"
         ? { func: ActivityLib.apiExtract, args: [cfg.api || {}] }
+        : cfg.strategy === "googleRpc"
+        ? { func: ActivityLib.googleRpcExtract, args: [cfg.rpc || {}] }
         : { func: genericExtract, args: [{
             idPattern: cfg.idPattern,
             containerSelector: cfg.containerSelector,
@@ -1614,7 +1630,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             googleLogin: !!AuthLib.GOOGLE_CLIENT_ID,
             sync: await (async () => { const s = await getSyncState(); return { enabled: !!s.enabled, lastSyncAt: s.lastSyncAt || null, lastError: s.lastError || null }; })(),
             providers: Object.keys(CATALOG).map(k => ({
-              key: k, name: CATALOG[k].name, url: CATALOG[k].activityUrl, strategy: CATALOG[k].strategy,
+              key: k, name: CATALOG[k].name, url: CATALOG[k].activityUrl, strategy: CATALOG[k].strategy, kind: CATALOG[k].kind || null,
               verified: !!CATALOG[k].verified, note: CATALOG[k].note || ""
             })),
             noActivityPage: NO_ACTIVITY_PAGE,

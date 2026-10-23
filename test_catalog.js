@@ -19,7 +19,7 @@ console.log("== 目录 ==");
 check("4 个分类都有服务", C.CATEGORIES.every((c) => C.PROVIDERS.some((p) => p.cat === c.key)));
 check("id 不重复", new Set(C.PROVIDERS.map((p) => p.id)).size === C.PROVIDERS.length);
 check("除 Claude/ChatGPT 外都有账户页和套餐规则", C.PROVIDERS.filter((p) => !p.special).every((p) => p.accountUrl && p.plans && p.plans.length));
-check("只收录已经适配好的服务", C.PROVIDERS.map((p) => p.id).sort().join() === "baidu-pan,bilibili,chatgpt,claude,tencent-video,youtube");
+check("只收录已经适配好的服务", C.PROVIDERS.map((p) => p.id).sort().join() === "baidu-pan,bilibili,chatgpt,claude,gemini,tencent-video,youtube");
 check("权限来源包含账户页所在域名", C.originsOf(C.BY_ID["tencent-video"]).indexOf("https://film.qq.com/*") >= 0);
 
 console.log("== 账户页解析 ==");
@@ -35,6 +35,15 @@ r = parse("baidu-pan", "超级会员 SVIP\n容量 1.2T/5T\n到期时间 2026-10-
 check("百度网盘：超级会员 + 空间 24%", r.plan.label === "超级会员" && r.storage.pct === 24 && /1\.2 TB \/ 5 TB/.test(r.storage.label));
 check("YouTube Premium Lite 优先于 Premium", parse("youtube", "Memberships\nYouTube Premium Lite\nNext billing date Oct 30").plan.label === "Premium Lite");
 check("YouTube 没有会员", parse("youtube", "Memberships\nYou have no memberships\nGet YouTube Premium").plan.paid === false);
+
+{
+  // Gemini 套餐在 Google One 页：页面上同时列着可购买的方案，只看「当前方案」后面那一行
+  const g1 = parse("gemini", "您已获得 15 GB 的存储空间\n已使用 0.1 GB，共 15 GB\n您当前的方案\n15 GB\n已包含在您的 Google 账号中\n$0\n推荐\nBasic (100 GB)\nSGD 2.79 $0.48/月\nGoogle AI Plus (400 GB)\n" + "x".repeat(300));
+  check("Gemini：免费账号不会被推荐方案（Google AI Plus）误认成已订阅", g1.status === "ok" && g1.plan.paid === false && g1.storage.totalGB === 15);
+  const g2 = parse("gemini", "Storage\n180 GB of 2 TB used\nYour current plan\nGoogle AI Pro (2 TB)\nRecommended\nGoogle AI Ultra\n$19.99/month\n" + "x".repeat(300));
+  check("Gemini：当前方案 Google AI Pro；页面上的价格是推荐优惠，不读", g2.plan.label === "Google AI Pro" && g2.plan.paid && !g2.price && g2.storage.pct === 9);
+  check("Gemini：没有「当前方案」字样时不瞎猜", parse("gemini", "Google AI Ultra\nGoogle AI Pro\n" + "x".repeat(300)).plan === null);
+}
 
 console.log("== 未登录 / 认不出 ==");
 check("被跳到登录页 → 未登录", parseDemo("Sign In\nEmail or mobile number\nPassword", "https://www.demo.example/login").status === "logged_out");

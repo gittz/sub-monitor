@@ -8,6 +8,7 @@
 //   youtube  YouTube 观看记录页的页面数据（ytInitialData）
 //   tencent  腾讯视频：临时挂接口监听，截获页面自己请求的观看记录接口（tx-hook.js）
 //   llm      Claude / ChatGPT：对话列表 + 套餐 + 额度（llm.js）
+//   googleRpc Google 系网页的 batchexecute 接口（Gemini 对话列表，每条带最后更新时间）
 //
 // api 模板的配置（cfg.api）：
 //   urls          依次尝试的接口地址（同一个服务的页面里请求，会自动带上登录 Cookie）
@@ -110,6 +111,57 @@
     return out;
   }
 
+  // googleRpc 模板：Google 系网页（Gemini 等）用 batchexecute 接口取数据。
+  // 在服务页面里取页面自带的令牌（WIZ_global_data），按配置调用指定的 rpc，从返回里按下标取出列表、ID 和时间。
+  // spec: { rpcid, payload, sourcePath, list: [下标路径], id: 下标, ts: 下标（[秒, 纳秒] 或秒）, title: 下标（可选，不填就不取标题）}
+  async function googleRpcExtract(spec) {
+    spec = spec || {};
+    const out = { ids: [], topLabel: "", loggedOut: null, historyOff: false, pageUrl: location.href,
+                  lastTs: 0, count: 0, sample: [], sampleTitles: [], strategy: "googleRpc", source: "rpc:" + spec.rpcid };
+    const W = window.WIZ_global_data || {};
+    if (/accounts\.google\.com/.test(location.href) || !W.SNlM0e) { out.loggedOut = true; return out; }
+    const at = (obj, path) => { let cur = obj; for (const k of [].concat(path == null ? [] : path)) { if (cur == null) return undefined; cur = cur[k]; } return cur; };
+    const tsOf = (v) => {
+      if (Array.isArray(v)) v = Number(v[0]) * 1000 + Math.floor(Number(v[1] || 0) / 1e6);
+      else if (v != null) { v = Number(v); if (v > 0 && v < 1e11) v *= 1000; }
+      return v > 0 && v === v ? v : 0;
+    };
+    try {
+      const q = new URLSearchParams({ rpcids: spec.rpcid, "source-path": spec.sourcePath || location.pathname, bl: W.cfb2h || "", "f.sid": W.FdrFJe || "",
+                                      hl: "en", _reqid: String(Math.floor(Math.random() * 900000) + 100000), rt: "c" });
+      const body = new URLSearchParams({ "f.req": JSON.stringify([[[spec.rpcid, JSON.stringify(spec.payload), null, "generic"]]]), at: W.SNlM0e });
+      const base = spec.endpoint || (location.origin + "/_/BardChatUi/data/batchexecute");
+      const resp = await fetch(base + "?" + q, { method: "POST", credentials: "include", cache: "no-store",
+                                                 headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" }, body });
+      if (resp.status === 401 || resp.status === 403) { out.loggedOut = true; return out; }
+      const text = await resp.text();
+      // 返回是 )]}' 开头的分块文本；找到 ["wrb.fr","<rpcid>","<JSON 字符串>"...]
+      let inner = null;
+      for (const line of text.split("\n")) {
+        if (line.indexOf('"wrb.fr"') < 0) continue;
+        try {
+          const arr = JSON.parse(line);
+          const hit = (arr || []).find(x => Array.isArray(x) && x[0] === "wrb.fr" && x[1] === spec.rpcid);
+          if (hit && typeof hit[2] === "string") { inner = JSON.parse(hit[2]); break; }
+          if (hit) { inner = []; break; }   // 有回应但没数据：当成空列表
+        } catch (e) {}
+      }
+      if (inner === null) return out;   // 没认出返回格式：读取失败
+      const list = at(inner, spec.list) || [];
+      const items = (Array.isArray(list) ? list : []).filter(Array.isArray).map(x => ({
+        id: String(at(x, spec.id) || ""), ts: tsOf(at(x, spec.ts)), title: spec.title != null ? String(at(x, spec.title) || "") : ""
+      })).filter(x => x.id);
+      items.sort((a, b) => b.ts - a.ts);
+      out.ids = items.map(x => x.id + (x.ts ? "@" + Math.floor(x.ts / 60000) : ""));
+      out.lastTs = items.reduce((m, x) => Math.max(m, x.ts), 0);
+      out.count = items.length;
+      out.sample = items.filter(x => x.title).slice(0, 3).map(x => x.title);
+      out.sampleTitles = out.sample.slice();
+      if (!items.length) out.empty = true;
+    } catch (e) { out.error = String(e && e.message || e).slice(0, 80); }
+    return out;
+  }
+
   // 检查一份 api 配置是否写全（加新服务时的自检；测试里也会对 CATALOG 跑一遍）
   function validateApiSpec(spec) {
     const errs = [];
@@ -123,7 +175,7 @@
     return errs;
   }
 
-  const api = { apiExtract, validateApiSpec };
+  const api = { apiExtract, googleRpcExtract, validateApiSpec };
   globalThis.ActivityLib = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })();

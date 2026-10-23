@@ -50,6 +50,26 @@ async function runInPage(spec, { responses = {}, links = [], text = "" } = {}) {
   const off = await runInPage(bili, { responses: { [bili.urls[0]]: { body: { code: 0, data: { list: [] } } } }, text: "历史记录功能已暂停" });
   t("历史记录被暂停：标记 historyOff", off.historyOff === true && !off.ids.length);
 
+  // googleRpc 模板（Gemini）：用页面令牌调用 batchexecute，按下标取 ID 和时间，不取标题
+  {
+    const g = CATALOG.gemini.rpc;
+    const inner = JSON.stringify([null, null, [["c_old", "旧对话", null, null, null, [now - 86400, 5e8]], ["c_new", "新对话", null, null, null, [now - 120, 617407000]]]]);
+    const respText = ")]}'\n\n296\n" + JSON.stringify([["wrb.fr", "MaZiqc", inner, null, null, null, "generic"], ["di", 421]]) + "\n25\n[[\"e\",4]]\n";
+    let sent = null;
+    const mk = (W, href) => ({
+      location: { href: href || "https://gemini.google.com/app", origin: "https://gemini.google.com", pathname: "/app" }, window: { WIZ_global_data: W },
+      fetch: async (url, o) => { sent = { url, body: String(o.body) }; return { status: 200, text: async () => respText }; },
+      URLSearchParams, Date, Number, String, Math, Promise, Array, JSON
+    });
+    const run = (ctx) => vm.runInNewContext("(" + A.googleRpcExtract.toString() + ")", ctx)(g);
+    const r = await run(mk({ SNlM0e: "tok123", cfb2h: "boq_x", FdrFJe: "-1" }));
+    t("Gemini：最近一次对话 = 最新的更新时间", r.lastTs === (now - 120) * 1000 + 617 && r.ids[0].indexOf("c_new@") === 0 && r.count === 2, r);
+    t("Gemini：不取对话标题", !r.sample.length);
+    t("Gemini：请求带上页面令牌和 rpc 编号", /rpcids=MaZiqc/.test(sent.url) && /at=tok123/.test(sent.body) && sent.body.indexOf(encodeURIComponent("MaZiqc")) >= 0);
+    const lo = await run(mk({}));
+    t("Gemini：页面没有令牌（没登录）→ 标记未登录", lo.loggedOut === true && !lo.ids.length);
+  }
+
   const http = await runInPage({ urls: ["https://x.example/api"], list: ["items"], id: ["id"], ts: ["at"] }, { responses: { "https://x.example/api": { status: 401, body: {} } } });
   t("HTTP 401/403 → 标记未登录", http.loggedOut === true);
 

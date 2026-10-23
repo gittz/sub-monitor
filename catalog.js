@@ -26,6 +26,14 @@
     // ---------------- AI 工具 ----------------
     { id: "claude", name: "Claude", cat: "ai", domains: ["claude.ai"], special: "llm" },
     { id: "chatgpt", name: "ChatGPT", cat: "ai", domains: ["chatgpt.com"], special: "llm" },
+    // Gemini：套餐在 Google One 页（页面上同时列着可购买的方案，只看「当前方案」那一行；价格都是推荐优惠，不读）；
+    // 使用时间读 Gemini 的对话列表（background.js CATALOG.gemini）
+    { id: "gemini", name: "Gemini", cat: "ai", domains: ["gemini.google.com", "one.google.com"], accountUrl: "https://one.google.com/storage", currency: "$",
+      activity: "gemini", storage: true, skipPagePrice: true,
+      planAnchor: /您当前的方案|你当前的方案|当前方案|Your current plan|Current plan/i,
+      plans: [[/Google AI Ultra/i, "Google AI Ultra", true], [/Google AI Pro|AI Premium|Gemini Advanced/i, "Google AI Pro", true],
+              [/Google AI Plus/i, "Google AI Plus", true], [/Premium|Standard|Basic|Lite|\b\d+\s*(GB|TB)\b/i, "Google One", true]],
+      free: /^15\s*GB$/i },
 
     // ---------------- 海外影音 ----------------
     { id: "youtube", name: "YouTube Premium", cat: "video", domains: ["youtube.com"], accountUrl: "https://www.youtube.com/paid_memberships", currency: "$",
@@ -148,15 +156,22 @@
     // 被跳到登录页：直接判为未登录（登录页上的字可能碰巧像套餐名）
     if (RE_LOGIN_URL.test(url)) { out.status = "logged_out"; return out; }
     let plan = null;
-    for (const [re, label, paid] of p.plans || []) if (re.test(text)) { plan = { label, paid: paid !== false }; break; }
-    if (!plan && p.free && p.free.test(text)) plan = { label: "免费版", paid: false };
+    // planAnchor：页面上同时列着「可购买的方案」时（如 Google One），只看「当前方案」后面第一行，免得把推荐方案认成已订阅
+    let planText = text;
+    if (p.planAnchor) {
+      const m = text.match(p.planAnchor);
+      planText = m ? ((text.slice(m.index + m[0].length).split(/\n/).map(x => x.trim()).filter(Boolean)[0]) || "") : "";
+    }
+    if (p.free && p.planAnchor && p.free.test(planText)) plan = { label: "免费版", paid: false };
+    if (!plan) for (const [re, label, paid] of p.plans || []) if (re.test(planText)) { plan = { label, paid: paid !== false }; break; }
+    if (!plan && p.free && p.free.test(planText)) plan = { label: "免费版", paid: false };
 
     if (!plan && (RE_LOGIN_URL.test(url) || RE_LOGIN_TEXT.test(text))) { out.status = "logged_out"; return out; }
     if (p.storage) out.storage = (page && page.quota && storageFromBytes(page.quota.used, page.quota.total)) || parseStorage(text);
     if (!plan) return out;
     out.status = "ok";
     out.plan = plan;
-    if (plan.paid) {
+    if (plan.paid && !p.skipPagePrice) {
       if (h.parseAmount) out.price = parsePrice(text, h.parseAmount, p.currency);
       if (h.parseDate) out.renewAt = parseRenew(text, h.parseDate, now || Date.now());
     }
@@ -183,6 +198,8 @@
   // 读账户页时除了套餐还要等到的内容：有空间信息的服务要等「已用 / 总量」出来
   function needPattern(p) { return p && p.storage && !p.quotaApi ? RE_STORAGE.source : ""; }
   function waitPattern(p) {
+    // 有「当前方案」锚点的：等锚点出现就行（套餐规则只对锚点后那一行有意义）
+    if (p.planAnchor) return p.planAnchor.source;
     return (p.plans || []).map((x) => x[0].source).concat(p.free ? [p.free.source] : []).join("|");
   }
 

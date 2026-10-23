@@ -244,6 +244,7 @@ function renderSubs() {
   const rows = sortRows(svFilterIdle ? idle : rowsAll);
   $("subList").innerHTML = rows.map(({ s, st }) => {
     const isLlm = !!(s.llm || s.provider === "claude" || s.provider === "chatgpt");
+    const isChat = isLlm || isChatProvider(s);
     const known = !!(s.catalogId || isLlm || s.mode === "activity");
     const fee = s.price ? `${esc(s.currency || "$")}${Number(s.price).toFixed(2)}${s.priceEstimated ? "<small>按公开价估</small>" : ""}` : `<span style="color:var(--muted)">—</span>`;
     let used;
@@ -268,7 +269,7 @@ function renderSubs() {
       </div>
       <div class="sv-detail">
         <div class="sv-metrics">
-          ${usageCells(s, vs, isLlm)}
+          ${usageCells(s, vs, isChat)}
         </div>
         ${watchTitleHtml(s)}
         ${s.llm && st.state !== "signal_lost" ? llmHtml(s) : ""}
@@ -405,13 +406,19 @@ $("svFilterClear").addEventListener("click", (e) => { e.preventDefault(); svFilt
 // 详情里的四格，把两件事分开：
 //   最近使用 = 判断闲不闲置的依据（视频看观看记录、大模型看对话记录、其它看浏览器访问），列表里「最近使用」那一列就是它；
 //   最近访问 / 近 7 天 / 近 30 天 = 在这个浏览器里打开网站的时间和次数，只是参考，打开网站不一定等于在用。
+// 读对话记录的 AI 服务（Gemini 等，不含 Claude / ChatGPT 的专用读法）
+function isChatProvider(s) {
+  const p = s && s.mode === "activity" && (state.providers || []).find(x => x.key === s.provider);
+  return !!(p && p.kind === "chat");
+}
 function usageBasis(s, isLlm) {
-  if (isLlm) return { text: "按对话记录", tip: "最近一次发起对话的时间（手机上的对话也算），只打开页面不算" };
+  if (isLlm && (s.llm || s.provider === "claude" || s.provider === "chatgpt" || SubLib.hasWatchTime(s)))
+    return { text: "按对话记录", tip: "最近一次对话的时间（手机上的对话也算），只打开页面不算" };
   if (s.mode === "activity") {
     if (SubLib.hasWatchTime(s)) return { text: "按观看记录", tip: "观看记录里最近一次观看的日期（电视、手机上用同一账号看的也算）" };
     if (s.signal && s.signal.ok !== false && s.sig && s.timeOk === false)
       return { text: "按浏览器访问", tip: "这个服务的观看记录里没有观看时间，只能按在本浏览器打开网站的时间判断" };
-    return { text: "按浏览器访问", tip: "观看记录暂时读不到，先按在本浏览器打开网站的时间判断" };
+    return { text: "按浏览器访问", tip: isChatProvider(s) ? "对话记录暂时读不到，先按在本浏览器打开网站的时间判断" : "观看记录暂时读不到，先按在本浏览器打开网站的时间判断" };
   }
   if (s.mode === "browser") return { text: "按浏览器访问", tip: "在本浏览器打开这个网站的时间" };
   return { text: "不参与判断", tip: "" };
@@ -429,7 +436,7 @@ function usageCells(s, vs, isLlm) {
 function histUrlOf(s) {
   if (s.mode !== "activity" || !s.provider) return "";
   const p = (state.providers || []).find(x => x.key === s.provider);
-  if (!p || p.strategy === "llm") return "";
+  if (!p || p.strategy === "llm" || p.kind === "chat") return "";
   return s.activityUrl || p.url || "";
 }
 function watchTitleHtml(s) {
