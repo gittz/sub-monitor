@@ -407,11 +407,17 @@ $("svFilterClear").addEventListener("click", (e) => { e.preventDefault(); svFilt
 //   最近使用 = 判断闲不闲置的依据（视频看观看记录、大模型看对话记录、其它看浏览器访问），列表里「最近使用」那一列就是它；
 //   最近访问 / 近 7 天 / 近 30 天 = 在这个浏览器里打开网站的时间和次数，只是参考，打开网站不一定等于在用。
 // 读对话记录的 AI 服务（Gemini 等，不含 Claude / ChatGPT 的专用读法）
-function isChatProvider(s) {
+function providerKind(s) {
   const p = s && s.mode === "activity" && (state.providers || []).find(x => x.key === s.provider);
-  return !!(p && p.kind === "chat");
+  return (p && p.kind) || "";
 }
+// 对话 / 使用记录类（Gemini、Cursor 等）：没有片名，也不显示「观看记录」链接
+function isChatProvider(s) { const k = providerKind(s); return k === "chat" || k === "usage"; }
 function usageBasis(s, isLlm) {
+  if (providerKind(s) === "usage") {
+    if (SubLib.hasWatchTime(s)) return { text: "按使用记录", tip: "使用记录里最近一次 AI 请求的时间（在编辑器里用也算），只打开网页不算" };
+    return { text: "按浏览器访问", tip: "使用记录暂时读不到，先按在本浏览器打开网站的时间判断" };
+  }
   if (isLlm && (s.llm || s.provider === "claude" || s.provider === "chatgpt" || SubLib.hasWatchTime(s)))
     return { text: "按对话记录", tip: "最近一次对话的时间（手机上的对话也算），只打开页面不算" };
   if (s.mode === "activity") {
@@ -436,7 +442,7 @@ function usageCells(s, vs, isLlm) {
 function histUrlOf(s) {
   if (s.mode !== "activity" || !s.provider) return "";
   const p = (state.providers || []).find(x => x.key === s.provider);
-  if (!p || p.strategy === "llm" || p.kind === "chat") return "";
+  if (!p || p.strategy === "llm" || p.kind === "chat" || p.kind === "usage") return "";
   return s.activityUrl || p.url || "";
 }
 function watchTitleHtml(s) {

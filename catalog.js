@@ -32,6 +32,20 @@
       plans: [[/"subscription_tier"\s*:\s*"max"/i, "Max", true], [/"subscription_tier"\s*:\s*"enterprise[^"]*"/i, "Enterprise Pro", true],
               [/"subscription_tier"\s*:\s*"pro"/i, "Pro", true]],
       free: /"subscription_status"\s*:\s*"none"|"subscription_tier"\s*:\s*null/i },
+    // Cursor：套餐读后台自己用的用量接口（返回 JSON），看 membershipType。free 已实测，其它取值按 Cursor 的套餐名写
+    { id: "cursor", name: "Cursor", cat: "ai", domains: ["cursor.com"], accountUrl: "https://cursor.com/api/usage-summary",
+      currency: "$", activity: "cursor", skipPagePrice: true,
+      plans: [[/"membershipType"\s*:\s*"ultra"/i, "Ultra", true], [/"membershipType"\s*:\s*"pro_?plus"/i, "Pro+", true],
+              [/"membershipType"\s*:\s*"free_trial"/i, "Pro 试用", true], [/"membershipType"\s*:\s*"pro"/i, "Pro", true],
+              [/"membershipType"\s*:\s*"enterprise"/i, "Enterprise", true], [/"membershipType"\s*:\s*"(team|business)[^"]*"/i, "Teams", true]],
+      free: /"membershipType"\s*:\s*"free"/i },
+    // Microsoft Copilot：套餐在微软账户「订阅」页（Copilot Pro，或含 Copilot 的 Microsoft 365 个人版 / 家庭版）。
+    // 免费账号这页只列「Microsoft 免费服务」（里面的「Microsoft 365 网页版」不是付费订阅）；价格没实测，不读
+    { id: "copilot", name: "Microsoft Copilot", cat: "ai", domains: ["copilot.com", "copilot.microsoft.com"], accountUrl: "https://account.microsoft.com/services",
+      currency: "$", activity: "copilot", skipPagePrice: true,
+      plans: [[/Copilot Pro/i, "Copilot Pro", true], [/Microsoft 365 Premium/i, "Microsoft 365 Premium", true],
+              [/Microsoft 365\s*(家庭版|Family)/i, "Microsoft 365 家庭版", true], [/Microsoft 365\s*(个人版|Personal)/i, "Microsoft 365 个人版", true]],
+      free: /Microsoft 免费服务|Free Microsoft services|免费服务/i },
     // Gemini：套餐在 Google One 页（页面上同时列着可购买的方案，只看「当前方案」那一行；价格都是推荐优惠，不读）；
     // 使用时间读 Gemini 的对话列表（background.js CATALOG.gemini）
     { id: "gemini", name: "Gemini", cat: "ai", domains: ["gemini.google.com", "one.google.com"], accountUrl: "https://one.google.com/storage", currency: "$",

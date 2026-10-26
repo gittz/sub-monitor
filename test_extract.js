@@ -107,8 +107,10 @@ ctx = loadBackground("https://x.com/", fakeDocWith([]));
 const eval_ = (expr) => vm.runInContext(expr, ctx);
 const cat = eval_("CATALOG");
 check("YouTube 标为已实测", cat.youtube.verified === true);
-check("只保留适配好的读取方式", Object.keys(cat).sort().join() === "bilibili,chatgpt,claude,gemini,perplexity,tencent,youtube");
-check("每个读取方式都实测过或有专用读法", Object.keys(cat).every(k => cat[k].verified === true || cat[k].strategy === "llm"));
+check("只保留适配好的读取方式", Object.keys(cat).sort().join() === "bilibili,chatgpt,claude,copilot,cursor,gemini,perplexity,tencent,youtube");
+// 例外名单：接口和空结果已实测、但有记录时的字段还没见过的（Cursor：账号暂无使用记录）
+const PENDING_VERIFY = ["cursor"];
+check("每个读取方式都实测过或有专用读法", Object.keys(cat).every(k => cat[k].verified === true || cat[k].strategy === "llm" || (PENDING_VERIFY.includes(k) && cat[k].verified === false)));
 check("已知无活动页的服务被登记（Spotify 等）",
   eval_("NO_ACTIVITY_PAGE").some(x => x.match === "spotify.com"));
 
@@ -136,6 +138,35 @@ check("未知服务返回 null", ctx.getProviderConfig({ provider: "不存在" }
   check("前端渲染的列表：等出来再抓", r2.ids.length === 2 && r2.ids[0] === "mzc00200abc/w0047xyz" && Date.now() - t0 < 2500);
   check("读到第一组标题「更早」", r2.topLabel === "更早");
   check("parseLabelToTs：前天 / 3 天前 / 10-16", !!c2.parseLabelToTs("前天", Date.now()) && !!c2.parseLabelToTs("3 天前", Date.now()) && !!c2.parseLabelToTs("10-16", Date.now()) && c2.parseLabelToTs("更早", Date.now()) === null);
+}
+
+console.log("== 官方记录为空 → 按闲置算 ==");
+{
+  const c3 = loadBackground("https://x.com/", fakeDocWith([]));
+  const now = Date.now();
+  const s1 = { id: "a", mode: "activity", provider: "cursor", idleDays: 30 };
+  await c3.applyActivityResult(s1, { ids: [], empty: true, loggedOut: null, historyOff: false });
+  const st1 = c3.computeStatus(s1, now);
+  check("空记录：信号正常、记成 90 天+未使用、判为闲置", s1.signal.ok === true && s1.lastUsedFloor === true && s1.timeOk === true && st1.state === "idle", JSON.stringify({ s1, st1 }));
+  const s2 = { id: "b", mode: "activity", provider: "gemini", idleDays: 30, lastWatched: now - 5 * 86400000, lastUsed: now - 5 * 86400000 };
+  await c3.applyActivityResult(s2, { ids: [], empty: true });
+  check("空记录但以前读到过使用时间：沿用那个时间，不改成 90 天+", s2.lastUsed === now - 5 * 86400000 && !s2.lastUsedFloor);
+  const s3 = { id: "c", mode: "activity", provider: "cursor" };
+  await c3.applyActivityResult(s3, { ids: [], loggedOut: null });
+  check("没认出返回（不是 empty）：仍是读取失败，不算闲置", s3.signal.ok === false && s3.signal.reason === "read_failed" && !s3.lastUsed);
+  const s4 = { id: "d", mode: "activity", provider: "cursor" };
+  await c3.applyActivityResult(s4, { ids: [], empty: true, loggedOut: true });
+  check("未登录时即便 empty 也按未登录", s4.signal.ok === false && s4.signal.reason === "logged_out");
+}
+
+{
+  const c4 = loadBackground("https://x.com/", fakeDocWith([]));
+  const g1 = { id: "e", mode: "activity", provider: "cursor", account: { status: "unknown" } };
+  await c4.applyActivityGated(g1, { ids: [], empty: true });
+  check("账户页没确认登录：空记录不算闲置（读取失败）", g1.signal.ok === false && !g1.lastUsed);
+  const g2 = { id: "f", mode: "activity", provider: "cursor", account: { status: "ok" }, idleDays: 30 };
+  await c4.applyActivityGated(g2, { ids: [], empty: true });
+  check("账户页确认已登录：空记录 → 闲置", g2.signal.ok === true && g2.lastUsedFloor === true);
 }
 
 console.log(`\n结果：${pass} 通过 / ${fail} 失败`);

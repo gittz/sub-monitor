@@ -231,6 +231,39 @@ const CATALOG = {
     verified: true,
     note: "读取 Perplexity 对话列表里最近一次提问的时间（不读对话内容）。手机上用同一账号的提问也算。需在本浏览器登录 Perplexity。"
   },
+  copilot: {
+    name: "Microsoft Copilot",
+    domain: "copilot.com",
+    activityUrl: "https://copilot.com/chat/all",
+    strategy: "api",
+    kind: "chat",
+    // Copilot 网页版「所有聊天」页的数据接口（同一个地址，按 JSON 请求时返回数据）：每条带 updateTimeUtc（毫秒）。
+    // 不取聊天名称和预览（对话属于隐私），只取 ID 和时间
+    api: {
+      urls: ["https://copilot.com/chat/all"],
+      list: ["store.chatLandingPageHistoryList.chats"], id: ["conversationId", "threadId"], ts: ["updateTimeUtc", "createTimeUtc"]
+    },
+    verified: true,
+    note: "读取 Microsoft Copilot 聊天列表里最近一次对话的时间（不读对话内容）。手机上用同一账号的对话也算。需在本浏览器登录 Microsoft 账号。"
+  },
+  cursor: {
+    name: "Cursor",
+    domain: "cursor.com",
+    activityUrl: "https://cursor.com/dashboard?tab=usage",
+    strategy: "api",
+    kind: "usage",
+    // Cursor 后台「Usage」页用的使用记录接口：每次 AI 请求（编辑器里的对话、补全、Agent）一条，带 timestamp（毫秒）。
+    // 只取时间，不取模型和用量。没有任何记录时接口返回 {}（实测），按读不到处理，不算闲置。
+    // 有记录时的字段结构没实测（账号暂无记录），按 Cursor 后台公开的返回格式写，多给几个候选字段
+    api: {
+      urls: ["https://cursor.com/api/dashboard/get-filtered-usage-events"],
+      method: "POST", body: { teamId: 0, startDate: "{{daysAgo:90}}", endDate: "{{now}}", page: 1, pageSize: 20 },
+      list: ["usageEventsDisplay", "usageEvents", "events"], id: ["id", "requestId", "timestamp"], ts: ["timestamp", "createdAt", "time"],
+      emptyIfNoList: true
+    },
+    verified: false,
+    note: "读取 Cursor 使用记录里最近一次 AI 请求的时间（不读代码和对话内容）。在编辑器里用也算。需在本浏览器登录 Cursor 账号。"
+  },
   tencent: {
     name: "腾讯视频",
     domain: "v.qq.com",
@@ -513,6 +546,8 @@ async function applyActivityGated(sub, r) {
     return applyActivityResult(sub, { ids: [], loggedOut: true });
   }
   sub.loginState = st === "ok" ? "ok" : (r && r.ids && r.ids.length ? "unconfirmed" : null);
+  // 「记录为空 → 按闲置算」只在账户页确认已登录时成立：有的接口没登录也回空结果，不能当成没用过
+  if (r && r.empty && st !== "ok") r = Object.assign({}, r, { empty: false });
   return applyActivityResult(sub, r);
 }
 
@@ -563,8 +598,17 @@ async function tencentExtract() {
 // 这比解析"今天/昨天"这类日期文案更稳，也不受语言/改版影响。
 async function updateFromActivity(sub) {
   const r = await readActivity(getProviderConfig(sub));
-  return applyActivityResult(sub, r);
+  return applyActivityGated(sub, r);
 }
+// 官方记录里没有任何使用：有过真实使用时间就沿用，否则记成「90 天+未使用」（和浏览器 90 天无访问同一种表示）
+function markNoUse(sub, now) {
+  sub.timeOk = true;
+  sub.watchTitle = null;
+  sub.sig = "";
+  if (sub.lastWatched && !sub.lastUsedFloor) { sub.lastUsed = sub.lastWatched; return; }
+  if (!sub.lastUsed || sub.lastUsedFloor) { sub.lastUsed = now - 90 * DAY; sub.lastUsedFloor = true; }
+}
+
 async function applyActivityResult(sub, r) {
   const now = Date.now();
   sub.lastChecked = now;
@@ -583,6 +627,14 @@ async function applyActivityResult(sub, r) {
 
   if (!r) return markFail("read_failed");
   if (r.loggedOut === true) return markFail("logged_out");
+  // 官方记录读到了，但一条都没有（从没用过，或记录范围里没用过）→ 按闲置算：
+  // 以前读到过使用时间就保留那个时间；否则记成「90 天+未使用」
+  if ((!r.ids || !r.ids.length) && r.empty === true && !r.historyOff) {
+    sub.signal = { ok: true, reason: null, since: null, lastOk: now, fails: 0 };
+    sub.signalNotified = null;
+    markNoUse(sub, now);
+    return true;
+  }
   if (!r.ids || !r.ids.length) return markFail(r.historyOff ? "history_off" : "read_failed");
 
   // 读取成功 → 信号恢复
@@ -832,7 +884,12 @@ function applyLlmResult(sub, r, now) {
   // 真实的「最近使用时间」直接来自对话时间，不需要指纹和基线
   if (llm.stats.lastUsed && llm.stats.lastUsed > (sub.lastUsed || 0)) {
     sub.lastUsed = llm.stats.lastUsed;
+    sub.lastUsedFloor = false;
     sub.notified = null;
+  } else if (!llm.stats.lastUsed && !llm.convCount && (!sub.lastUsed || sub.lastUsedFloor)) {
+    // 对话列表是空的（从没用过）→ 按闲置算，记成「90 天+未使用」
+    sub.lastUsed = now - 90 * DAY;
+    sub.lastUsedFloor = true;
   }
   sub.signal = { ok: true, reason: null, since: null, lastOk: now, fails: 0 };
   sub.signalNotified = null;

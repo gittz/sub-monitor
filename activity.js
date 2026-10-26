@@ -68,7 +68,13 @@
         const init = { credentials: "include", cache: "no-store", headers: { Accept: "application/json" } };
         if (spec.method && spec.method !== "GET") {
           init.method = spec.method;
-          if (spec.body != null) { init.body = typeof spec.body === "string" ? spec.body : JSON.stringify(spec.body); init.headers["Content-Type"] = "application/json"; }
+          if (spec.body != null) {
+            // 请求体里可以写日期占位：{{now}} = 现在，{{daysAgo:30}} = 30 天前（都是毫秒数字符串）
+            const raw = typeof spec.body === "string" ? spec.body : JSON.stringify(spec.body);
+            const nowMs = Date.now();
+            init.body = raw.replace(/\{\{now\}\}/g, String(nowMs)).replace(/\{\{daysAgo:(\d+)\}\}/g, (m, d) => String(nowMs - Number(d) * 86400000));
+            init.headers["Content-Type"] = "application/json";
+          }
         }
         const resp = await fetch(url, init);
         if (resp.status === 401 || resp.status === 403) { out.loggedOut = true; continue; }
@@ -80,6 +86,8 @@
         if (code != null && okCodes.indexOf(code) < 0) continue;
         let list = null;
         for (const p of [].concat(spec.list || [""])) { const v = p ? get(json, p) : json; if (Array.isArray(v)) { list = v; break; } }
+        // emptyIfNoList：这个接口没有记录时直接返回 {}（Cursor 实测），当成空列表
+        if (!list && spec.emptyIfNoList && json && typeof json === "object" && !Array.isArray(json) && !Object.keys(json).length) list = [];
         if (!list) continue;
         apiReady = true;
         list.forEach(item => {
@@ -118,6 +126,8 @@
     if (!out.ids.length && out.loggedOut !== true && spec.historyOffText) {
       try { if (new RegExp(spec.historyOffText, "i").test((document.body && document.body.innerText) || "")) out.historyOff = true; } catch (e) {}
     }
+    // 官方接口正常回应、但一条记录都没有（从没用过 / 很久没用）：交给后台按闲置算
+    if (apiReady && !uniq.length && out.loggedOut !== true && !out.historyOff) out.empty = true;
     return out;
   }
 

@@ -19,7 +19,7 @@ console.log("== 目录 ==");
 check("4 个分类都有服务", C.CATEGORIES.every((c) => C.PROVIDERS.some((p) => p.cat === c.key)));
 check("id 不重复", new Set(C.PROVIDERS.map((p) => p.id)).size === C.PROVIDERS.length);
 check("除 Claude/ChatGPT 外都有账户页和套餐规则", C.PROVIDERS.filter((p) => !p.special).every((p) => p.accountUrl && p.plans && p.plans.length));
-check("只收录已经适配好的服务", C.PROVIDERS.map((p) => p.id).sort().join() === "baidu-pan,bilibili,chatgpt,claude,gemini,perplexity,tencent-video,youtube");
+check("只收录已经适配好的服务", C.PROVIDERS.map((p) => p.id).sort().join() === "baidu-pan,bilibili,chatgpt,claude,copilot,cursor,gemini,perplexity,tencent-video,youtube");
 check("权限来源包含账户页所在域名", C.originsOf(C.BY_ID["tencent-video"]).indexOf("https://film.qq.com/*") >= 0);
 
 console.log("== 账户页解析 ==");
@@ -51,6 +51,26 @@ check("YouTube 没有会员", parse("youtube", "Memberships\nYou have no members
   check("Perplexity：没有订阅 → 免费版", parse("perplexity", pj({ subscription_status: "none", subscription_source: "none", subscription_tier: null })).plan.paid === false);
   check("Perplexity：Pro", parse("perplexity", pj({ subscription_status: "active", subscription_source: "stripe", subscription_tier: "pro" })).plan.label === "Pro");
   check("Perplexity：Max 优先", parse("perplexity", pj({ subscription_status: "active", subscription_tier: "max" })).plan.label === "Max");
+}
+
+{
+  // Microsoft Copilot：微软账户「订阅」页
+  const free = parse("copilot", "订阅\nMicrosoft 存储\nMicrosoft 免费服务\n使用 Microsoft 帐户，享受对这些免费服务的访问。\nMicrosoft 365 网页版\nOneDrive\nTeams\nOutlook.com\n" + "x".repeat(300));
+  check("Copilot：免费账号（「Microsoft 365 网页版」不算付费）", free.status === "ok" && free.plan.paid === false);
+  // 真实免费账号页面文本（含「首月使用免费 / 免费试用」推广位，不能误判成付费）
+  const real = parse("copilot", "订阅\n首月使用免费\n联机或脱机访问生产力应用、安全云存储、高级安全性等 - 所有这些都包含在一个便捷订阅中。\n免费试用\n了解详细信息\n有预付费产品密钥? 开始订阅\nMicrosoft 存储\n已用总量\n< 0.1 GB / 5 GB\n获取更多存储\nMicrosoft 免费服务\n使用 Microsoft 帐户，享受对这些免费服务的访问。\nMicrosoft 365 网页版\nOneDrive\nTeams\nOutlook.com\n中文（中国）\n隐私与 Cookie\n使用条款");
+  check("Copilot：真实免费账号页 → 免费", real.status === "ok" && real.plan && real.plan.paid === false);
+  check("Copilot：Copilot Pro", parse("copilot", "订阅\nCopilot Pro\n下一次收费日期\n" + "x".repeat(300)).plan.label === "Copilot Pro");
+  check("Copilot：Microsoft 365 家庭版", parse("copilot", "Subscriptions\nMicrosoft 365 Family\n" + "x".repeat(300)).plan.label === "Microsoft 365 家庭版");
+}
+
+{
+  // Cursor：用量接口 JSON（free 为实测原文）
+  const cfree = parse("cursor", '{"billingCycleStart":"2026-10-17T05:20:29.085Z","billingCycleEnd":"2026-11-17T05:20:29.085Z","membershipType":"free","limitType":"user","isUnlimited":false,"autoModelSelectedDisplayMessage":"You\'ve used 0% of your included total usage","individualUsage":{"plan":{"enabled":true,"used":0,"limit":0}}}');
+  check("Cursor：membershipType free → 免费", cfree.status === "ok" && cfree.plan.paid === false);
+  check("Cursor：pro", parse("cursor", '{"membershipType":"pro","limitType":"user"}' + " ".repeat(300)).plan.label === "Pro");
+  check("Cursor：free_trial 不当成免费", parse("cursor", '{"membershipType":"free_trial"}' + " ".repeat(300)).plan.label === "Pro 试用");
+  check("Cursor：ultra", parse("cursor", '{"membershipType":"ultra"}' + " ".repeat(300)).plan.label === "Ultra");
 }
 
 console.log("== 未登录 / 认不出 ==");
