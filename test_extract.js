@@ -107,7 +107,7 @@ ctx = loadBackground("https://x.com/", fakeDocWith([]));
 const eval_ = (expr) => vm.runInContext(expr, ctx);
 const cat = eval_("CATALOG");
 check("YouTube 标为已实测", cat.youtube.verified === true);
-check("只保留适配好的读取方式", Object.keys(cat).sort().join() === "bilibili,chatgpt,claude,gemini,tencent,youtube");
+check("只保留适配好的读取方式", Object.keys(cat).sort().join() === "bilibili,chatgpt,claude,gemini,perplexity,tencent,youtube");
 check("每个读取方式都实测过或有专用读法", Object.keys(cat).every(k => cat[k].verified === true || cat[k].strategy === "llm"));
 check("已知无活动页的服务被登记（Spotify 等）",
   eval_("NO_ACTIVITY_PAGE").some(x => x.match === "spotify.com"));

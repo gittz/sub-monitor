@@ -26,6 +26,12 @@
     // ---------------- AI 工具 ----------------
     { id: "claude", name: "Claude", cat: "ai", domains: ["claude.ai"], special: "llm" },
     { id: "chatgpt", name: "ChatGPT", cat: "ai", domains: ["chatgpt.com"], special: "llm" },
+    // Perplexity：套餐直接读网页版自己用的设置接口（返回 JSON，页面文字就是 JSON），看 subscription_tier / subscription_status
+    { id: "perplexity", name: "Perplexity", cat: "ai", domains: ["perplexity.ai"], accountUrl: "https://www.perplexity.ai/rest/user/settings?version=2.18&source=default",
+      currency: "$", activity: "perplexity", skipPagePrice: true,
+      plans: [[/"subscription_tier"\s*:\s*"max"/i, "Max", true], [/"subscription_tier"\s*:\s*"enterprise[^"]*"/i, "Enterprise Pro", true],
+              [/"subscription_tier"\s*:\s*"pro"/i, "Pro", true]],
+      free: /"subscription_status"\s*:\s*"none"|"subscription_tier"\s*:\s*null/i },
     // Gemini：套餐在 Google One 页（页面上同时列着可购买的方案，只看「当前方案」那一行；价格都是推荐优惠，不读）；
     // 使用时间读 Gemini 的对话列表（background.js CATALOG.gemini）
     { id: "gemini", name: "Gemini", cat: "ai", domains: ["gemini.google.com", "one.google.com"], accountUrl: "https://one.google.com/storage", currency: "$",

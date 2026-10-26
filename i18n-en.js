@@ -76,6 +76,7 @@
     "每周": "Weekly", "每月": "Monthly", "每季度": "Quarterly", "每年": "Yearly",
     "账号": "Account",
     "中": "中",
+    "读取 Perplexity 对话列表里最近一次提问的时间（不读对话内容）。手机上用同一账号的提问也算。需在本浏览器登录 Perplexity。": "Reads the time of your latest question in Perplexity's thread list (not the content). Questions on your phone with the same account count too. Requires being signed in to Perplexity in this browser.",
     "对话记录暂时读不到，先按在本浏览器打开网站的时间判断": "Chat history can't be read right now, so usage is based on when you open the site in this browser",
     "最近一次对话的时间（手机上的对话也算），只打开页面不算": "Time of your latest chat (chats on your phone count too); just opening the page doesn't count",
     "读取 Gemini 最近对话的更新时间（不读对话内容）。手机上用同一账号的对话也算。需在本浏览器登录 Google 账号。": "Reads the update times of your recent Gemini chats (not their content). Chats on your phone with the same account count too. Requires being signed in to Google in this browser.",

@@ -12,6 +12,8 @@
 //
 // api 模板的配置（cfg.api）：
 //   urls          依次尝试的接口地址（同一个服务的页面里请求，会自动带上登录 Cookie）
+//   method / body 可选：POST 等请求方式和 JSON 请求体（默认 GET）
+//   tsUtc         可选：时间是不带时区的 UTC 字符串时设为 true
 //   list          条目数组在 JSON 里的位置，可写多个候选，如 ["data.list", "data"]
 //   id / ts / title  每个条目里对应字段的位置（候选列表，取第一个有值的），支持 "a.b.c" 这种路径
 //   idPattern     可选：从 ID 原始值里再用正则取一段（第一个分组）
@@ -40,7 +42,10 @@
       if (v == null || v === "") return 0;
       const n = Number(v);
       if (n === n && n !== Infinity && n > 0) return n < 100000000000 ? n * 1000 : n;   // 秒 → 毫秒
-      const t = Date.parse(String(v));
+      let str = String(v);
+      // tsUtc：接口给的是不带时区的 UTC 时间（如 "2026-10-24T05:04:29.319566"），补上 Z，免得被当成本地时间
+      if (spec.tsUtc && /^\d{4}-\d\d-\d\dT\d\d:\d\d(:\d\d(\.\d+)?)?$/.test(str)) str = str.replace(/(\.\d{3})\d+$/, "$1") + "Z";
+      const t = Date.parse(str);
       return isNaN(t) ? 0 : t;
     };
     const clean = (v) => String(v == null ? "" : v).replace(/<[^>]*>/g, "").replace(/&amp;/g, "&").trim();
@@ -60,7 +65,12 @@
     for (const url of [].concat(spec.urls || [])) {
       try {
         if (typeof fetch !== "function") break;
-        const resp = await fetch(url, { credentials: "include", cache: "no-store", headers: { Accept: "application/json" } });
+        const init = { credentials: "include", cache: "no-store", headers: { Accept: "application/json" } };
+        if (spec.method && spec.method !== "GET") {
+          init.method = spec.method;
+          if (spec.body != null) { init.body = typeof spec.body === "string" ? spec.body : JSON.stringify(spec.body); init.headers["Content-Type"] = "application/json"; }
+        }
+        const resp = await fetch(url, init);
         if (resp.status === 401 || resp.status === 403) { out.loggedOut = true; continue; }
         const json = await resp.json();
         const rawCode = spec.codePath ? get(json, spec.codePath) : null;

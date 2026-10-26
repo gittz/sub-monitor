@@ -19,7 +19,7 @@ console.log("== 目录 ==");
 check("4 个分类都有服务", C.CATEGORIES.every((c) => C.PROVIDERS.some((p) => p.cat === c.key)));
 check("id 不重复", new Set(C.PROVIDERS.map((p) => p.id)).size === C.PROVIDERS.length);
 check("除 Claude/ChatGPT 外都有账户页和套餐规则", C.PROVIDERS.filter((p) => !p.special).every((p) => p.accountUrl && p.plans && p.plans.length));
-check("只收录已经适配好的服务", C.PROVIDERS.map((p) => p.id).sort().join() === "baidu-pan,bilibili,chatgpt,claude,gemini,tencent-video,youtube");
+check("只收录已经适配好的服务", C.PROVIDERS.map((p) => p.id).sort().join() === "baidu-pan,bilibili,chatgpt,claude,gemini,perplexity,tencent-video,youtube");
 check("权限来源包含账户页所在域名", C.originsOf(C.BY_ID["tencent-video"]).indexOf("https://film.qq.com/*") >= 0);
 
 console.log("== 账户页解析 ==");
@@ -43,6 +43,14 @@ check("YouTube 没有会员", parse("youtube", "Memberships\nYou have no members
   const g2 = parse("gemini", "Storage\n180 GB of 2 TB used\nYour current plan\nGoogle AI Pro (2 TB)\nRecommended\nGoogle AI Ultra\n$19.99/month\n" + "x".repeat(300));
   check("Gemini：当前方案 Google AI Pro；页面上的价格是推荐优惠，不读", g2.plan.label === "Google AI Pro" && g2.plan.paid && !g2.price && g2.storage.pct === 9);
   check("Gemini：没有「当前方案」字样时不瞎猜", parse("gemini", "Google AI Ultra\nGoogle AI Pro\n" + "x".repeat(300)).plan === null);
+}
+
+{
+  // Perplexity：套餐读设置接口返回的 JSON
+  const pj = (o) => JSON.stringify(Object.assign({ pages_limit: 10, upload_limit: 3, pad: "x".repeat(300) }, o));
+  check("Perplexity：没有订阅 → 免费版", parse("perplexity", pj({ subscription_status: "none", subscription_source: "none", subscription_tier: null })).plan.paid === false);
+  check("Perplexity：Pro", parse("perplexity", pj({ subscription_status: "active", subscription_source: "stripe", subscription_tier: "pro" })).plan.label === "Pro");
+  check("Perplexity：Max 优先", parse("perplexity", pj({ subscription_status: "active", subscription_tier: "max" })).plan.label === "Max");
 }
 
 console.log("== 未登录 / 认不出 ==");

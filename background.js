@@ -215,6 +215,22 @@ const CATALOG = {
     verified: true,
     note: "读取 Gemini 最近对话的更新时间（不读对话内容）。手机上用同一账号的对话也算。需在本浏览器登录 Google 账号。"
   },
+  perplexity: {
+    name: "Perplexity",
+    domain: "perplexity.ai",
+    activityUrl: "https://www.perplexity.ai/library",
+    strategy: "api",
+    kind: "chat",
+    // Perplexity 网页版 Library 用的对话列表接口：每条带 last_query_datetime（最近一次提问，UTC，不带时区）。
+    // 不取标题和问题内容（对话属于隐私），只取 ID 和时间
+    api: {
+      urls: ["https://www.perplexity.ai/rest/thread/list_ask_threads?version=2.18&source=default"],
+      method: "POST", body: { limit: 20, ascending: false, offset: 0, search_term: "" },
+      list: [""], id: ["uuid", "slug", "frontend_context_uuid"], ts: ["last_query_datetime"], tsUtc: true
+    },
+    verified: true,
+    note: "读取 Perplexity 对话列表里最近一次提问的时间（不读对话内容）。手机上用同一账号的提问也算。需在本浏览器登录 Perplexity。"
+  },
   tencent: {
     name: "腾讯视频",
     domain: "v.qq.com",

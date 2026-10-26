@@ -70,6 +70,25 @@ async function runInPage(spec, { responses = {}, links = [], text = "" } = {}) {
     t("Gemini：页面没有令牌（没登录）→ 标记未登录", lo.loggedOut === true && !lo.ids.length);
   }
 
+  // Perplexity：POST 请求对话列表；时间是不带时区的 UTC 字符串
+  {
+    const pp = CATALOG.perplexity.api;
+    let sentInit = null;
+    const ctx = {
+      location: { href: "https://www.perplexity.ai/library" }, document: { body: { innerText: "" }, querySelectorAll: () => [] },
+      fetch: async (url, init) => { sentInit = init; return { status: 200, json: async () => [
+        { uuid: "t-old", title: "旧", query_str: "q", last_query_datetime: "2026-10-20T08:00:00.123456" },
+        { uuid: "t-new", title: "新", query_str: "q2", last_query_datetime: "2026-10-24T05:04:29.319566" }] }; },
+      Date, Number, String, Math, Promise, Array, Set, RegExp, JSON, isNaN, Infinity
+    };
+    const pr = await vm.runInNewContext("(" + A.apiExtract.toString() + ")", ctx)(pp);
+    t("Perplexity：用 POST 请求、带 JSON 请求体", sentInit.method === "POST" && JSON.parse(sentInit.body).limit === 20 && sentInit.headers["Content-Type"] === "application/json");
+    t("Perplexity：不带时区的时间按 UTC 算，取最近一次提问", pr.lastTs === Date.parse("2026-10-24T05:04:29.319Z") && pr.ids[0].indexOf("t-new@") === 0, pr);
+    t("Perplexity：不取标题和问题内容", !pr.sample.length);
+    const lo = await vm.runInNewContext("(" + A.apiExtract.toString() + ")", Object.assign({}, ctx, { fetch: async () => ({ status: 401, json: async () => ({}) }) }))(pp);
+    t("Perplexity：401 → 未登录", lo.loggedOut === true);
+  }
+
   const http = await runInPage({ urls: ["https://x.example/api"], list: ["items"], id: ["id"], ts: ["at"] }, { responses: { "https://x.example/api": { status: 401, body: {} } } });
   t("HTTP 401/403 → 标记未登录", http.loggedOut === true);
 
