@@ -256,7 +256,8 @@ function renderSubs() {
     let fix = "";
     if (st.state === "signal_lost") {
       const since = st.days > 0 ? `已 ${st.days} 天读不到。` : "";
-      fix = `<div class="fixit">${since}${FIX[st.reason] || FIX.read_failed}
+      const detail = st.reason === "read_failed" && s.signal && s.signal.detail ? `<div class="fixdetail">详情：${esc(s.signal.detail)}</div>` : "";
+      fix = `<div class="fixit">${since}${FIX[st.reason] || FIX.read_failed}${detail}
         <div><button data-fix="${esc(s.id)}">${st.reason === "logged_out" ? "去登录" : "去处理"}</button></div></div>`;
     }
     const busy = checking.has(s.id), open = openRows.has(s.id);
@@ -481,7 +482,9 @@ function diagText(d) {
     `价格：${a.price ? a.price.currency + a.price.monthly + "/月" : "未读到"}　续费日：${a.renewAt ? new Date(a.renewAt).toLocaleDateString("zh-CN") : "未读到"}`,
     a.storage ? `空间：${a.storage.label}（${a.storage.pct}%）` : d.quotaError ? `空间：没读到（用量接口：${d.quotaError}）` : "",
     d.injectError ? `注入失败：${d.injectError}` : "",
-    d.activity ? (d.activity.error ? "观看记录：读取失败" : d.activity.loggedOut ? "观看记录：没登录"
+    d.activity ? (d.activity.error ? "观看记录：读取失败" : d.activity.loggedOut ? `观看记录：没登录${d.activity.detail ? "（" + d.activity.detail + "）" : ""}`
+      : d.activity.empty ? `观看记录：官方记录为空（按闲置算）${d.activity.detail ? "　" + d.activity.detail : ""}`
+      : !d.activity.count && d.activity.detail ? `观看记录：没读到（${d.activity.detail}）${d.activity.pageUrl ? "　页面：" + d.activity.pageUrl.split("?")[0] : ""}`
       : d.activity.guestOnly ? `观看记录：账户页显示没登录，读到的 ${d.activity.count} 条可能只是本机的游客记录，不采用`
       : `观看记录：抓到 ${d.activity.count} 条${d.activity.lastTs ? `，最近一次观看 ${new Date(d.activity.lastTs).toLocaleString("zh-CN", { hour12: false })}${d.activity.sample && d.activity.sample[0] ? `（${d.activity.sample[0]}）` : ""}` : ""}${d.activity.topLabel ? `，第一组「${d.activity.topLabel}」` : ""}${d.activity.count ? "（" + d.activity.ids.join("、") + "）" : "，没认出条目"}${d.activity.calls ? "　接口调用：" + d.activity.calls.map(c => `${c.appid || "?"}/${c.ret}/${c.n}`).join(" ") : ""}${d.activity.source ? "　来源：" + d.activity.source : ""}${!d.activity.lastTs && d.activity.sample && d.activity.sample.length ? "　片名：" + d.activity.sample.join("、") : ""}${d.activity.pageUrl ? "　观看记录页：" + d.activity.pageUrl : ""}${d.activity.hrefs && d.activity.hrefs.length ? "　链接示例：" + d.activity.hrefs.join(" ") : ""}${d.activity.fresh ? "　跳过缓存重取：" + (d.activity.fresh.error ? "失败 " + d.activity.fresh.error : `${d.activity.fresh.ret}/${d.activity.fresh.n}`) : ""}`) : "",
     `页面文字 ${d.textLength} 字，开头：`,

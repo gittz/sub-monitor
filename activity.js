@@ -41,10 +41,10 @@
     const tsOf = (v) => {
       if (v == null || v === "") return 0;
       const n = Number(v);
-      if (n === n && n !== Infinity && n > 0) return n < 100000000000 ? n * 1000 : n;   // 秒 → 毫秒
+      if (n === n && n !== Infinity && n > 0) return n < 100000000000 ? n * 1000 : n > 100000000000000 ? Math.floor(n / 1000) : n;   // 秒 → 毫秒；微秒（Poe）→ 毫秒
       let str = String(v);
       // tsUtc：接口给的是不带时区的 UTC 时间（如 "2026-10-24T05:04:29.319566"），补上 Z，免得被当成本地时间
-      if (spec.tsUtc && /^\d{4}-\d\d-\d\dT\d\d:\d\d(:\d\d(\.\d+)?)?$/.test(str)) str = str.replace(/(\.\d{3})\d+$/, "$1") + "Z";
+      if (spec.tsUtc && /^\d{4}-\d\d-\d\d[T ]\d\d:\d\d(:\d\d(\.\d+)?)?$/.test(str)) str = str.replace(" ", "T").replace(/(\.\d{3})\d+$/, "$1") + "Z";
       const t = Date.parse(str);
       return isNaN(t) ? 0 : t;
     };
@@ -62,10 +62,43 @@
 
     const items = [];
     let apiReady = false;
-    for (const url of [].concat(spec.urls || [])) {
+    // pageData：不请求接口，直接读页面里服务端渲染好的数据（如 Next.js 的 <script id="__NEXT_DATA__">）。
+    // 每次检查都是新打开的页面，数据是当下的
+    // urlVars：接口地址里的 {{名字}} 从页面里服务端渲染的 JSON 取（如 Midjourney 的用户 ID）。取不到就不请求（读取失败）
+    const vars = {};
+    let varsOk = true;
+    for (const [name, src] of Object.entries(spec.urlVars || {})) {
       try {
+        const el = document.getElementById(src.script);
+        const v = el ? get(JSON.parse(el.textContent || "null"), src.path) : undefined;
+        if (v == null || v === "") { varsOk = false; break; }
+        vars[name] = encodeURIComponent(String(v));
+      } catch (e) { varsOk = false; break; }
+    }
+    const fill = (u) => String(u).replace(/\{\{(\w+)\}\}/g, (m, k) => (k in vars ? vars[k] : m));
+    const sources = !varsOk ? [] : spec.pageData ? ["#page"] : [].concat(spec.urls || []).map(fill);
+    // 诊断用：每一步发生了什么（只记状态码 / 类型 / 条数，不记内容）
+    out.debug = [];
+    if (!varsOk) out.debug.push("页面里没找到接口参数（" + Object.keys(spec.urlVars || {}).join(",") + "）");
+    for (const url of sources) {
+      try {
+        if (url === "#page") {
+          const el = document.getElementById(spec.pageData);
+          if (!el) { out.debug.push("页面里没有 " + spec.pageData); continue; }
+          const json = JSON.parse(el.textContent || "null");
+          let list = null;
+          for (const p of [].concat(spec.list || [""])) { const v = p ? get(json, p) : json; if (Array.isArray(v)) { list = v; break; } }
+          if (!list) continue;
+          apiReady = true;
+          list.forEach(item => {
+            if (!item || typeof item !== "object") return;
+            const id = idOf(first(item, spec.id));
+            if (id) items.push({ id, ts: tsOf(first(item, spec.ts)), title: clean(first(item, spec.title)) });
+          });
+          break;
+        }
         if (typeof fetch !== "function") break;
-        const init = { credentials: "include", cache: "no-store", headers: { Accept: "application/json" } };
+        const init = { credentials: "include", cache: "no-store", headers: Object.assign({ Accept: "application/json" }, spec.headers || {}) };
         if (spec.method && spec.method !== "GET") {
           init.method = spec.method;
           if (spec.body != null) {
@@ -77,8 +110,11 @@
           }
         }
         const resp = await fetch(url, init);
-        if (resp.status === 401 || resp.status === 403) { out.loggedOut = true; continue; }
-        const json = await resp.json();
+        const host = url.replace(/^https:\/\/([^/]+).*/, "$1");
+        if (resp.status === 401 || resp.status === 403) { out.debug.push(host + " " + resp.status); out.loggedOut = true; continue; }
+        let json;
+        try { json = await resp.json(); }
+        catch (e) { out.debug.push(host + " " + resp.status + " 返回的不是 JSON（" + (resp.headers && resp.headers.get ? resp.headers.get("content-type") : "") + "）"); continue; }
         const rawCode = spec.codePath ? get(json, spec.codePath) : null;
         const code = rawCode == null ? null : Number(rawCode);
         const message = String(first(json, spec.messagePath || ["message", "msg"]) || "");
@@ -88,7 +124,8 @@
         for (const p of [].concat(spec.list || [""])) { const v = p ? get(json, p) : json; if (Array.isArray(v)) { list = v; break; } }
         // emptyIfNoList：这个接口没有记录时直接返回 {}（Cursor 实测），当成空列表
         if (!list && spec.emptyIfNoList && json && typeof json === "object" && !Array.isArray(json) && !Object.keys(json).length) list = [];
-        if (!list) continue;
+        if (!list) { out.debug.push(host + " " + resp.status + " 没找到列表（顶层字段：" + (json && typeof json === "object" ? Object.keys(json).slice(0, 6).join(",") : typeof json) + "）"); continue; }
+        out.debug.push(host + " " + resp.status + " 列表 " + list.length + " 条");
         apiReady = true;
         list.forEach(item => {
           if (!item || typeof item !== "object") return;
@@ -97,7 +134,7 @@
           if (id) items.push({ id, ts: tsOf(first(item, spec.ts)), title });
         });
         break;
-      } catch (e) { /* 接口地址或跨域策略变了：试下一个 */ }
+      } catch (e) { out.debug.push("请求出错：" + String(e && e.message || e).slice(0, 80)); /* 接口地址或跨域策略变了：试下一个 */ }
     }
 
     // 接口不可用：退回读页面上的条目链接，至少保留条目 ID 和名称（指纹比对用）
@@ -186,7 +223,7 @@
   function validateApiSpec(spec) {
     const errs = [];
     if (!spec || typeof spec !== "object") return ["缺少 api 配置"];
-    if (!Array.isArray(spec.urls) || !spec.urls.length) errs.push("urls 不能为空");
+    if (!spec.pageData && (!Array.isArray(spec.urls) || !spec.urls.length)) errs.push("urls 不能为空（或写 pageData）");
     (spec.urls || []).forEach(u => { if (!/^https:\/\//.test(u)) errs.push("接口地址必须是 https：" + u); });
     if (!spec.ts) errs.push("缺少 ts（观看时间字段）");
     if (!spec.id && !spec.title) errs.push("id 和 title 至少要有一个");

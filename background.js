@@ -246,6 +246,55 @@ const CATALOG = {
     verified: true,
     note: "读取 Microsoft Copilot 聊天列表里最近一次对话的时间（不读对话内容）。手机上用同一账号的对话也算。需在本浏览器登录 Microsoft 账号。"
   },
+  midjourney: {
+    name: "Midjourney",
+    domain: "midjourney.com",
+    activityUrl: "https://www.midjourney.com/imagine",
+    strategy: "api",
+    kind: "usage",
+    // Midjourney「Create」页用的作品列表接口：GET /api/imagine?user_id=…，要带 X-Csrf-Protection: 1（实测，不带返回 401）。
+    // 用户 ID 取自页面里的 <script id="initialProps">（initialUserInfo.firebase.id，实测）。
+    // 未订阅账号实测返回 {"data":[]}；有作品时每条的时间字段没实测，按已知格式 enqueue_time（UTC，"2026-10-27 06:54:09.123456"）写，多给候选。
+    // 只取作品 ID 和时间，不取提示词和图片
+    api: {
+      urls: ["https://www.midjourney.com/api/imagine?user_id={{user_id}}&page_size=50"],
+      urlVars: { user_id: { script: "initialProps", path: "initialUserInfo.firebase.id" } },
+      headers: { "X-Csrf-Protection": "1" },
+      list: ["data"], id: ["id", "job_id", "parent_id"], ts: ["enqueue_time", "created_at", "createdAt", "enqueueTime"], tsUtc: true
+    },
+    verified: false,
+    note: "读取 Midjourney 作品记录里最近一次生成的时间（不读提示词和图片）。在 Discord 里生成的也算。需在本浏览器登录 midjourney.com。"
+  },
+  poe: {
+    name: "Poe",
+    domain: "poe.com",
+    activityUrl: "https://poe.com/chats",
+    strategy: "api",
+    kind: "chat",
+    // Poe 的「历史」页：对话列表由服务端渲染在 __NEXT_DATA__ 里，每条带 lastInteractionTime（微秒）。
+    // Poe 的接口要带页面算出来的签名，直接读页面数据更稳。不取标题，只取 ID 和时间
+    api: {
+      pageData: "__NEXT_DATA__",
+      list: ["props.pageProps.data.mainQuery.chats.edges", "props.pageProps.data.leftNavigationSidebarQuery.chats.edges"],
+      id: ["node.chatId", "node.chatCode", "node.id"], ts: ["node.lastInteractionTime"]
+    },
+    verified: true,
+    note: "读取 Poe 对话历史里最近一次对话的时间（不读对话内容）。手机上用同一账号的对话也算。需在本浏览器登录 Poe。"
+  },
+  grok: {
+    name: "Grok",
+    domain: "grok.com",
+    activityUrl: "https://grok.com/",
+    strategy: "api",
+    kind: "chat",
+    // Grok 网页版侧栏用的对话列表接口：每条带 modifyTime（UTC ISO）。不取标题，只取 ID 和时间
+    api: {
+      urls: ["https://grok.com/rest/app-chat/conversations?pageSize=20"],
+      list: ["conversations"], id: ["conversationId"], ts: ["modifyTime", "createTime"]
+    },
+    verified: true,
+    note: "读取 Grok 对话列表里最近一次对话的时间（不读对话内容）。手机上用同一账号的对话也算。需在本浏览器登录 Grok。"
+  },
   cursor: {
     name: "Cursor",
     domain: "cursor.com",
@@ -451,7 +500,8 @@ function getProviderConfig(sub) {
     key: sub.provider,
     name: base.name,
     strategy: base.strategy,
-    activityUrl: sub.activityUrl || base.activityUrl,
+    // 常见服务一律用目录里的地址（老版本留在订阅里的地址可能已经过时）；手动添加的订阅才用自己填的地址
+    activityUrl: (sub.catalogId ? null : sub.activityUrl) || base.activityUrl,
     idPattern: sub.idPattern || base.idPattern || null,
     containerSelector: sub.containerSelector || base.containerSelector || null,
     waitMs: base.waitMs || 0,
@@ -505,9 +555,13 @@ async function readActivity(cfg) {
             labels: !!cfg.labels
           }] })
     });
-    return (res && res[0] && res[0].result) || null;
+    const r = res && res[0] && res[0].result;
+    if (r) { r.pageUrl = r.pageUrl || ""; return r; }
+    let url = ""; try { url = (await chrome.tabs.get(tab.id)).url || ""; } catch (e2) {}
+    return { ids: [], error: "页面脚本没有返回结果", pageUrl: url };
   } catch (e) {
-    return null;
+    let url = ""; try { url = (await chrome.tabs.get(tab.id)).url || ""; } catch (e2) {}
+    return { ids: [], error: String(e && e.message || e).slice(0, 120), pageUrl: url };
   } finally {
     chrome.tabs.remove(tab.id).catch(() => {});
   }
@@ -605,8 +659,9 @@ function markNoUse(sub, now) {
   sub.timeOk = true;
   sub.watchTitle = null;
   sub.sig = "";
-  if (sub.lastWatched && !sub.lastUsedFloor) { sub.lastUsed = sub.lastWatched; return; }
-  if (!sub.lastUsed || sub.lastUsedFloor) { sub.lastUsed = now - 90 * DAY; sub.lastUsedFloor = true; }
+  // 只认官方记录里出现过的时间（lastWatched）；按浏览器访问留下的 lastUsed 不算，否则会显示成「按使用记录 · 今天」
+  if (sub.lastWatched) { sub.lastUsed = sub.lastWatched; sub.lastUsedFloor = false; return; }
+  sub.lastUsed = now - 90 * DAY; sub.lastUsedFloor = true;
 }
 
 async function applyActivityResult(sub, r) {
@@ -620,6 +675,8 @@ async function applyActivityResult(sub, r) {
   const markFail = (reason) => {
     sub.signal.ok = false;
     sub.signal.reason = reason;
+    // 失败细节（只有状态码 / 报错 / 最终网址，不含页面内容），显示在卡片上方便排查
+    sub.signal.detail = r ? [r.error, (r.debug || []).join("；"), r.pageUrl && !/^https:\/\/[^/]+\/?$/.test(r.pageUrl) ? "页面：" + String(r.pageUrl).split("?")[0] : ""].filter(Boolean).join("　").slice(0, 300) : "没有读取结果";
     sub.signal.fails = (sub.signal.fails || 0) + 1;
     if (!sub.signal.since) sub.signal.since = now;
     return false;
@@ -1319,7 +1376,8 @@ async function catalogDiagnose(id) {
     const ar = await readActivity(getProviderConfig({ provider: p.activity }));
     activity = ar ? { count: (ar.ids || []).length, ids: (ar.ids || []).slice(0, 5), topLabel: ar.topLabel || "", loggedOut: ar.loggedOut, url: ar.pageUrl || "",
                       lastTs: ar.lastTs || 0, sample: ar.sample || ar.sampleTitles || [], calls: ar.calls || null, fresh: ar.fresh || null,
-                      source: ar.source || (ar.fallback ? "页面卡片" : ""), hrefs: ar.hrefs || null, pageUrl: ar.pageUrl || "" } : { error: true };
+                      source: ar.source || (ar.fallback ? "页面卡片" : ""), hrefs: ar.hrefs || null, pageUrl: ar.pageUrl || "",
+                      empty: !!ar.empty, detail: [ar.error, (ar.debug || []).join("；")].filter(Boolean).join("　") } : { error: true };
     // 诊断时读到的观看记录也直接更新到订阅上（和点「检查」效果一样）
     if (activity && a.status === "logged_out") activity.guestOnly = true;   // 账户页没登录：观看记录不采用
     if (ar && ar.ids && ar.ids.length && a.status !== "logged_out") {

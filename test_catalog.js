@@ -19,7 +19,7 @@ console.log("== 目录 ==");
 check("4 个分类都有服务", C.CATEGORIES.every((c) => C.PROVIDERS.some((p) => p.cat === c.key)));
 check("id 不重复", new Set(C.PROVIDERS.map((p) => p.id)).size === C.PROVIDERS.length);
 check("除 Claude/ChatGPT 外都有账户页和套餐规则", C.PROVIDERS.filter((p) => !p.special).every((p) => p.accountUrl && p.plans && p.plans.length));
-check("只收录已经适配好的服务", C.PROVIDERS.map((p) => p.id).sort().join() === "baidu-pan,bilibili,chatgpt,claude,copilot,cursor,gemini,perplexity,tencent-video,youtube");
+check("只收录已经适配好的服务", C.PROVIDERS.map((p) => p.id).sort().join() === "baidu-pan,bilibili,chatgpt,claude,copilot,cursor,gemini,grok,midjourney,perplexity,poe,tencent-video,youtube");
 check("权限来源包含账户页所在域名", C.originsOf(C.BY_ID["tencent-video"]).indexOf("https://film.qq.com/*") >= 0);
 
 console.log("== 账户页解析 ==");
@@ -71,6 +71,26 @@ check("YouTube 没有会员", parse("youtube", "Memberships\nYou have no members
   check("Cursor：pro", parse("cursor", '{"membershipType":"pro","limitType":"user"}' + " ".repeat(300)).plan.label === "Pro");
   check("Cursor：free_trial 不当成免费", parse("cursor", '{"membershipType":"free_trial"}' + " ".repeat(300)).plan.label === "Pro 试用");
   check("Cursor：ultra", parse("cursor", '{"membershipType":"ultra"}' + " ".repeat(300)).plan.label === "Ultra");
+}
+
+{
+  check("Grok：{\"subscriptions\":[]} → 免费（实测）", parse("grok", '{"subscriptions":[]}').plan.paid === false);
+  check("Grok：SuperGrok", parse("grok", '{"subscriptions":[{"tier":"SUBSCRIPTION_TIER_SUPER_GROK","status":"SUBSCRIPTION_STATUS_ACTIVE"}]}' + " ".repeat(300)).plan.label === "SuperGrok");
+  check("Grok：SuperGrok Heavy", parse("grok", '{"subscriptions":[{"tier":"SUBSCRIPTION_TIER_SUPER_GROK_HEAVY"}]}' + " ".repeat(300)).plan.label === "SuperGrok Heavy");
+}
+
+{
+  // Poe：真实免费账号页面文字（推广语里有「订阅」，不能误判成付费）
+  const pf = parse("poe", "设置\n通用\n订阅和积分\n积分\n274\n可用\n≈ $0.0083 值\n查看活动\n您的套餐\n免费套餐\n在17:00:43后重置为300\n订阅可发送更多消息并访问更多优质模型，包括 GPT-5.5、Claude-Opus-4.7。\n订阅Poe\n设置\n默认单条消息预算\n300\n编辑\n" + "x".repeat(200));
+  check("Poe：免费套餐（推广里的「订阅 / $」不算）", pf.status === "ok" && pf.plan.paid === false);
+  check("Poe：付费", parse("poe", "订阅和积分\n您的套餐\nPoe 订阅 · 每月\n续订日期 11月27日\n" + "x".repeat(300)).plan.paid === true);
+}
+
+{
+  // Midjourney：真实未订阅账户页（页面上列着各套餐价格，不能认成已订阅）
+  const mf = parse("midjourney", "Midjourney\nExplore\nCreate\nSubscribe\nMy account\nPurchase a subscription\nChoose the plan that works for you\nI'm already subscribed\nYearly billing\nMonthly billing\nBasic Plan\n$10\n$8\n/ month\nSubscribe\nStandard Plan\n$30\n$24\n/ month\nPro Plan\n$60\nMega Plan\n$120\n");
+  check("Midjourney：未订阅（推荐套餐不算）", mf.status === "ok" && mf.plan.paid === false);
+  check("Midjourney：Your plan → Standard", parse("midjourney", "My account\nYour plan\nStandard Plan\nRenews on Nov 27\n" + "x".repeat(300)).plan.label === "Standard");
 }
 
 console.log("== 未登录 / 认不出 ==");

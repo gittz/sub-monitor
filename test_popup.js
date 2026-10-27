@@ -103,7 +103,7 @@ setTimeout(async () => {
   // 常见服务
   t("从浏览记录发现：最近访问过 YouTube → 添加按钮", /YouTube/.test($("discList").textContent) && !!$("discList").querySelector('[data-cat="youtube"]'));
   const cards = $("catGrid").querySelectorAll(".ad-card");
-  t("目录列出全部服务，已添加的标记为已添加", cards.length === 10 && $("catGrid").querySelectorAll(".ad-card.added").length === 2);
+  t("目录列出全部服务，已添加的标记为已添加", cards.length === 13 && $("catGrid").querySelectorAll(".ad-card.added").length === 2);
   t("分类标签：全部 + 4 类", $("catCats").querySelectorAll("span").length === 5);
   $("catCats").querySelectorAll("span")[3].click();
   t("点分类只显示该类", !/YouTube/.test($("catGrid").textContent) && /腾讯视频/.test($("catGrid").textContent));

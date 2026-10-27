@@ -32,6 +32,26 @@
       plans: [[/"subscription_tier"\s*:\s*"max"/i, "Max", true], [/"subscription_tier"\s*:\s*"enterprise[^"]*"/i, "Enterprise Pro", true],
               [/"subscription_tier"\s*:\s*"pro"/i, "Pro", true]],
       free: /"subscription_status"\s*:\s*"none"|"subscription_tier"\s*:\s*null/i },
+    // Midjourney：账户页。未订阅时整页是「Purchase a subscription / Choose the plan that works for you」+ 各套餐价格（实测）；
+    // 已订阅时的页面文字没实测，按「Your plan」后第一行的套餐名匹配（Basic / Standard / Pro / Mega）。没有免费版
+    { id: "midjourney", name: "Midjourney", cat: "ai", domains: ["midjourney.com"], accountUrl: "https://www.midjourney.com/account",
+      currency: "$", activity: "midjourney", skipPagePrice: true,
+      planAnchor: /Purchase a subscription|Your (current )?plan|Current plan|Subscription plan/i,
+      plans: [[/\bMega\b/i, "Mega", true], [/\bPro\b/i, "Pro", true], [/\bStandard\b/i, "Standard", true], [/\bBasic\b/i, "Basic", true]],
+      free: /Choose the plan that works for you/i },
+    // Poe：设置 →「订阅和积分」页，「您的套餐」下面第一行。免费账号实测为「免费套餐」；付费时的文字没实测，按订阅字样匹配
+    { id: "poe", name: "Poe", cat: "ai", domains: ["poe.com"], accountUrl: "https://poe.com/settings?tab=subscription",
+      currency: "$", activity: "poe", skipPagePrice: true,
+      planAnchor: /您的套餐|你的套餐|Your plan/i,
+      plans: [[/订阅|Subscri|Premium|Pro\b|\$\s*\d/i, "Poe 订阅", true]],
+      free: /免费套餐|免费|Free/i },
+    // Grok：套餐读网页版自己用的订阅接口（返回 JSON）。免费账号实测为 {"subscriptions":[]}；
+    // 付费时的字段按 xAI 的套餐名匹配（SuperGrok / SuperGrok Heavy / X Premium+），还没用付费账号实测
+    { id: "grok", name: "Grok", cat: "ai", domains: ["grok.com"], accountUrl: "https://grok.com/rest/subscriptions",
+      currency: "$", activity: "grok", skipPagePrice: true,
+      plans: [[/SUPER_?GROK_?HEAVY|SuperGrok Heavy/i, "SuperGrok Heavy", true], [/SUPER_?GROK|GROK_?PRO|SuperGrok/i, "SuperGrok", true],
+              [/X_?PREMIUM_?PLUS|PREMIUM\+/i, "X Premium+", true]],
+      free: /"subscriptions"\s*:\s*\[\s*\]/i },
     // Cursor：套餐读后台自己用的用量接口（返回 JSON），看 membershipType。free 已实测，其它取值按 Cursor 的套餐名写
     { id: "cursor", name: "Cursor", cat: "ai", domains: ["cursor.com"], accountUrl: "https://cursor.com/api/usage-summary",
       currency: "$", activity: "cursor", skipPagePrice: true,

@@ -107,9 +107,9 @@ ctx = loadBackground("https://x.com/", fakeDocWith([]));
 const eval_ = (expr) => vm.runInContext(expr, ctx);
 const cat = eval_("CATALOG");
 check("YouTube 标为已实测", cat.youtube.verified === true);
-check("只保留适配好的读取方式", Object.keys(cat).sort().join() === "bilibili,chatgpt,claude,copilot,cursor,gemini,perplexity,tencent,youtube");
+check("只保留适配好的读取方式", Object.keys(cat).sort().join() === "bilibili,chatgpt,claude,copilot,cursor,gemini,grok,midjourney,perplexity,poe,tencent,youtube");
 // 例外名单：接口和空结果已实测、但有记录时的字段还没见过的（Cursor：账号暂无使用记录）
-const PENDING_VERIFY = ["cursor"];
+const PENDING_VERIFY = ["cursor", "midjourney"];
 check("每个读取方式都实测过或有专用读法", Object.keys(cat).every(k => cat[k].verified === true || cat[k].strategy === "llm" || (PENDING_VERIFY.includes(k) && cat[k].verified === false)));
 check("已知无活动页的服务被登记（Spotify 等）",
   eval_("NO_ACTIVITY_PAGE").some(x => x.match === "spotify.com"));
@@ -151,6 +151,9 @@ console.log("== 官方记录为空 → 按闲置算 ==");
   const s2 = { id: "b", mode: "activity", provider: "gemini", idleDays: 30, lastWatched: now - 5 * 86400000, lastUsed: now - 5 * 86400000 };
   await c3.applyActivityResult(s2, { ids: [], empty: true });
   check("空记录但以前读到过使用时间：沿用那个时间，不改成 90 天+", s2.lastUsed === now - 5 * 86400000 && !s2.lastUsedFloor);
+  const s5 = { id: "g", mode: "activity", provider: "cursor", idleDays: 30, lastUsed: now - 3600000 };   // 之前按浏览器访问记的「今天」
+  await c3.applyActivityResult(s5, { ids: [], empty: true });
+  check("空记录：浏览器访问留下的「今天」不算，改成 90 天+未使用", s5.lastUsedFloor === true && c3.computeStatus(s5, now).state === "idle");
   const s3 = { id: "c", mode: "activity", provider: "cursor" };
   await c3.applyActivityResult(s3, { ids: [], loggedOut: null });
   check("没认出返回（不是 empty）：仍是读取失败，不算闲置", s3.signal.ok === false && s3.signal.reason === "read_failed" && !s3.lastUsed);
@@ -167,6 +170,15 @@ console.log("== 官方记录为空 → 按闲置算 ==");
   const g2 = { id: "f", mode: "activity", provider: "cursor", account: { status: "ok" }, idleDays: 30 };
   await c4.applyActivityGated(g2, { ids: [], empty: true });
   check("账户页确认已登录：空记录 → 闲置", g2.signal.ok === true && g2.lastUsedFloor === true);
+}
+
+{
+  const c5 = loadBackground("https://x.com/", fakeDocWith([]));
+  const f1 = { id: "h", mode: "activity", provider: "copilot" };
+  await c5.applyActivityResult(f1, { ids: [], debug: ["copilot.com 200 返回的不是 JSON（text/html）"], pageUrl: "https://login.live.com/oauth?x=1" });
+  check("读取失败时记下细节（状态码 / 最终网址，不带参数）", f1.signal.ok === false && /不是 JSON/.test(f1.signal.detail) && /login\.live\.com\/oauth/.test(f1.signal.detail) && !/x=1/.test(f1.signal.detail), f1.signal.detail);
+  const cfgCat = c5.getProviderConfig({ provider: "copilot", catalogId: "copilot", activityUrl: "https://copilot.microsoft.com/old" });
+  check("常见服务不用订阅里过时的地址", cfgCat.activityUrl === "https://copilot.com/chat/all");
 }
 
 console.log(`\n结果：${pass} 通过 / ${fail} 失败`);
