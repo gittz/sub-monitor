@@ -144,6 +144,7 @@ async function runGrantWindow() {
 
 // ---------- 渲染订阅列表 ----------
 const SV_ICON = {
+  pin: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>',
   check: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>',
   edit: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.38 3.62a1 1 0 0 1 3 3L7.37 18.64a2 2 0 0 1-.86.5l-2.87.84a.5.5 0 0 1-.62-.62l.84-2.87a2 2 0 0 1 .5-.86z"/></svg>',
   grip: '<svg viewBox="0 0 12 12" fill="currentColor"><circle cx="4" cy="2.5" r="1.1"/><circle cx="8" cy="2.5" r="1.1"/><circle cx="4" cy="6" r="1.1"/><circle cx="8" cy="6" r="1.1"/><circle cx="4" cy="9.5" r="1.1"/><circle cx="8" cy="9.5" r="1.1"/></svg>',
@@ -237,10 +238,91 @@ function subCaptionRaw(s) {
   if (s.provider === "claude" || s.provider === "chatgpt") return "AI 助手";
   return s.urlPattern || (s.mode === "none" ? "电视 / 手机" : "");
 }
+// ---------- 置顶卡片（只能置顶一个，像电子价签一样放在列表上面） ----------
+async function setPin(id) {
+  state.pinned = id;
+  renderSubs();
+  await send({ type: "SET_PIN", id });
+}
+function pinCardData(s, now) {
+  const md = (t) => new Date(t).toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" });
+  const mdhm = (t) => `${md(t)} ${new Date(t).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false })}`;
+  const when = (t) => (t && t > now ? mdhm(t) : "--");
+  const pctLeft = (v) => Math.max(0, Math.min(100, 100 - Math.round(v)));
+  const p = s.catalogId && SubCatalog.BY_ID[s.catalogId];
+  const a = s.account || {};
+  const L = s.llm;
+  const plan = (L && L.plan && L.plan.label) || (a.plan && a.plan.label) || "";
+  const rows = [];
+  let main = null;
+  const U = L && L.usage;
+  const cx = U && U.source === "codex" ? "Codex " : "";
+  if (U && (U.week != null || U.fiveHour != null || U.month != null)) {
+    // 大模型：最主要的额度放中间（本周 > 5 小时 > 本月），其余额度和各自的重置时间列在下面
+    const [k, label] = U.week != null ? ["week", "本周"] : U.fiveHour != null ? ["fiveHour", "5 小时"] : ["month", "本月"];
+    main = { title: `${cx}${label}剩余额度`, pct: pctLeft(U[k]), used: Math.round(U[k]) };
+    if (U.fiveHour != null && k !== "fiveHour") rows.push([`${cx}5 小时剩余额度`, `${pctLeft(U.fiveHour)}%`]);
+    if (U.month != null && k !== "month") rows.push([`${cx}月度剩余额度`, `${pctLeft(U.month)}%`]);
+    if (U.weekReset || U.week != null) rows.push(["周额度重置", when(U.weekReset)]);
+    if (U.fiveHour != null) rows.push(["5 小时额度重置", when(U.fiveHourReset)]);
+    if (U.month != null) rows.push(["月额度重置", when(U.monthReset)]);
+  } else if ((a.quota && a.quota.pct != null) || (s.apiInfo && s.apiInfo.quota && s.apiInfo.quota.pct != null)) {
+    const q = (s.apiInfo && s.apiInfo.quota && s.apiInfo.quota.pct != null) ? s.apiInfo.quota : a.quota;
+    main = { title: q.label.replace("额度", "剩余额度"), pct: pctLeft(q.pct), used: Math.round(q.pct) };
+    rows.push([q.label.replace("本月", "月") + "重置", when(q.resetAt)]);
+  } else if (a.storage && a.storage.pct != null) {
+    main = { title: "剩余空间", pct: pctLeft(a.storage.pct), used: Math.round(a.storage.pct), usedText: `已使用 ${Math.round(a.storage.pct)}%（${a.storage.label}）` };
+  } else {
+    // 没有额度的服务：中间显示最近使用
+    main = { title: "最近使用", text: s.lastUsedFloor ? "90 天+" : s.lastUsed ? fmtShort(s.lastUsed) : "—", sub: usageBasis(s, !!L).text };
+  }
+  if (s.apiInfo && s.apiInfo.balance != null) rows.push(["API 余额", `${s.apiInfo.currency === "CNY" ? "¥" : (s.apiInfo.currency || "") + " "}${Number(s.apiInfo.balance).toFixed(2)}`]);
+  if (main.pct != null) rows.push(["最近使用", s.lastUsedFloor ? "90 天+" : s.lastUsed ? fmtShort(s.lastUsed) : "—"]);
+  if (s.price) rows.push(["费用", `${s.currency || "$"}${Number(s.price).toFixed(2)} / 月`]);
+  const renew = (L && L.renewAt) || a.renewAt;
+  if (renew) rows.push(["下次续费", md(renew)]);
+  return { plan, main, rows: rows.slice(0, 5) };
+}
+function renderPinCard(now) {
+  const box = $("pinCard");
+  if (!box) return;
+  const s = state.pinned && (state.subs || []).find(x => x.id === state.pinned);
+  if (!s || sortMode) { box.hidden = true; box.innerHTML = ""; return; }
+  const d = pinCardData(s, now);
+  const st = computeStatus(s, now);
+  const today = new Date(now).toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit", weekday: "short" });
+  const upd = s.lastChecked ? new Date(s.lastChecked).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }) : "";
+  const flag = st.state === "idle" ? `<span class="warn">${esc(st.days)} 天未使用</span>`
+    : st.state === "signal_lost" ? `<span class="warn">暂时读不到${upd ? " · " + esc(upd) : ""}</span>` : upd ? `更新 ${esc(upd)}` : "";
+  const m = d.main;
+  const low = m.pct != null && m.pct <= 10;
+  const mainHtml = m.pct != null
+    ? `<div class="t">${esc(m.title)}</div><div class="big">${m.pct}%</div><div class="pc-bar"><i style="width:${m.pct}%"></i></div><div class="s">${esc(m.usedText || `已使用 ${m.used}%`)}</div>`
+    : `<div class="t">${esc(m.title)}</div><div class="big text">${esc(m.text)}</div><div class="s">${esc(m.sub || "")}</div>`;
+  box.innerHTML = `<div class="pc ${low || st.state === "idle" ? "ok" : "calm"}" data-toggle="${esc(s.id)}">
+    <div class="pc-top">${avatarHtml(s.catalogId || s.provider || s.id)}<b>${esc(s.name)}</b>${d.plan ? `<span class="pc-plan">${esc(d.plan)}</span>` : ""}
+      <button type="button" class="pc-unpin" data-unpin="1" title="取消置顶">${SV_ICON.pin}</button></div>
+    <div class="pc-sub"><span>${esc(today)}</span><span>${flag}</span></div>
+    <div class="pc-main">${mainHtml}</div>
+    ${d.rows.length ? `<div class="pc-rows">${d.rows.map(([k, v]) => `<div><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join("")}</div>` : ""}
+  </div>`;
+  box.hidden = false;
+}
+$("pinCard").addEventListener("click", async (e) => {
+  if (e.target.closest && e.target.closest("[data-unpin]")) { await setPin(null); return; }
+  // 点卡片：展开列表里那一行并滚过去
+  const id = state.pinned;
+  if (!id) return;
+  openRows.add(id);
+  renderSubs();
+  const row = document.querySelector(`#subList [data-toggle="${CSS && CSS.escape ? CSS.escape(id) : id}"]`);
+  if (row && row.scrollIntoView) row.scrollIntoView({ block: "nearest", behavior: "smooth" });
+});
 function renderSubs() {
   const now = Date.now();
   const subs = state.subs;
   const rowsAll = subs.map(s => ({ s, st: computeStatus(s, now) }));
+  renderPinCard(now);
   const idle = rowsAll.filter(r => r.st.state === "idle");
   $("cnt").textContent = state.subLimit != null ? `${subs.length}/${state.subLimit}` : subs.length;
   $("idleCnt").textContent = idle.length;
@@ -325,6 +407,7 @@ function renderSubs() {
         <div class="sv-foot">
           <span class="sv-muted">${known ? "最近检查 " + esc((s.lastChecked || (s.account && s.account.checkedAt)) ? fmtCheck(s.lastChecked || s.account.checkedAt) : "还没检查") : "只统计浏览器访问"}</span>
           <button class="sv-icon${busy ? " spinning" : ""}" data-chk="${esc(s.id)}" title="${busy ? "检查中…" : "检查"}" ${busy ? "disabled" : ""}>${SV_ICON.check}</button>
+          <button class="sv-icon${state.pinned === s.id ? " on" : ""}" data-pin="${esc(s.id)}" title="${state.pinned === s.id ? "取消置顶" : "置顶：在列表上方显示一张大卡片（只能置顶一个）"}">${SV_ICON.pin}</button>
           <button class="sv-icon" data-edit="${esc(s.id)}" title="编辑">${SV_ICON.edit}</button>
           <button class="sv-icon danger" data-del="${esc(s.id)}" title="删除">${SV_ICON.del}</button>
         </div>
@@ -1301,6 +1384,7 @@ $("subList").addEventListener("click", async (e) => {
     if (row) { const id = row.dataset.toggle; openRows.has(id) ? openRows.delete(id) : openRows.add(id); renderSubs(); }
     return;
   }
+  if (ds.pin) { await setPin(state.pinned === ds.pin ? null : ds.pin); return; }
   const edit = ds.edit, del = ds.del, fix = ds.fix;
   let chk = ds.chk, cdiagAlt = null;
   // 开发排查：按住 Alt 点「检查」= 诊断（显示读取明细），只对收录服务有效

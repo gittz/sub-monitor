@@ -134,6 +134,18 @@ setTimeout(async () => {
     $("subList").querySelector('[data-chk="2"]').dispatchEvent(new w.MouseEvent("click", { bubbles: true }));
     await new Promise(r => setTimeout(r, 30));
     t("普通点「检查」照常检查", sent.some(m => m.type === "RUN_CHECK"));
+    // 置顶：点图钉 → 列表上方出现大卡片；再点别的订阅的图钉 → 换成那个（只能一个）；卡片上取消置顶
+    sent.length = 0;
+    $("subList").querySelector('[data-pin="2"]').click();
+    await new Promise(r => setTimeout(r, 20));
+    t("置顶：发 SET_PIN，列表上方出现卡片", sent.some(m => m.type === "SET_PIN" && m.id === "2") && !$("pinCard").hidden && /百度网盘/.test($("pinCard").textContent) && /剩余空间/.test($("pinCard").textContent) && /98%/.test($("pinCard").textContent));
+    t("置顶：图钉按钮变成已置顶状态", $("subList").querySelector('[data-pin="2"]').classList.contains("on"));
+    $("subList").querySelector('[data-pin="1"]').click();
+    await new Promise(r => setTimeout(r, 20));
+    t("置顶：只能一个，换成新的那个", /Notion/.test($("pinCard").textContent) && !/百度网盘/.test($("pinCard").textContent) && !$("subList").querySelector('[data-pin="2"]').classList.contains("on"));
+    $("pinCard").querySelector("[data-unpin]").click();
+    await new Promise(r => setTimeout(r, 20));
+    t("置顶：卡片上取消置顶", $("pinCard").hidden && sent.some(m => m.type === "SET_PIN" && m.id === null));
   }
   {
     const cap = w.subCaption;
@@ -150,6 +162,16 @@ setTimeout(async () => {
     t("列表小字：Cursor 显示本月额度和重置", w.subCaption({ catalogId: "cursor", account: { status: "ok", plan: { label: "Pro" }, quota: { pct: 63.3, resetAt: soon, label: "本月额度" } } }) === `Pro · 本月额度 63% · ${md} 重置` && /cap-bar/.test(w.capBarHtml({ catalogId: "cursor", account: { status: "ok", plan: { label: "Pro" }, quota: { pct: 63.3, resetAt: soon, label: "本月额度" } } })));
     t("列表小字：DeepSeek 显示 API 余额", w.subCaption({ catalogId: "deepseek", account: { status: "ok", plan: { label: "免费版", paid: false } }, apiInfo: { balance: 18.71, currency: "CNY" } }) === "免费版 · API 余额 ¥18.71");
     t("列表小字：智谱 Coding Plan 显示 5 小时额度和重置", w.subCaption({ catalogId: "zhipu", account: { status: "ok", plan: { label: "GLM Coding Pro", paid: true } }, apiInfo: { balance: 0, currency: "CNY", quota: { pct: 42, resetAt: soon, label: "5 小时额度" } } }) === `GLM Coding Pro · 5 小时额度 42% · ${md} 重置`);
+    {
+      const d1 = w.pinCardData({ provider: "chatgpt", llm: { plan: { label: "Free" }, usage: { week: 0, weekReset: soon } }, lastUsed: Date.now() }, Date.now());
+      t("置顶卡片：大模型中间是本周剩余额度，下面有周额度重置", d1.plan === "Free" && d1.main.title === "本周剩余额度" && d1.main.pct === 100 && d1.main.used === 0 && d1.rows.some(r => r[0] === "周额度重置" && /\d\d\/\d\d \d\d:\d\d/.test(r[1])), JSON.stringify(d1));
+      const d2 = w.pinCardData({ provider: "claude", llm: { plan: { label: "Pro" }, usage: { week: 8, weekReset: soon, fiveHour: 49, fiveHourReset: soon } }, price: 20, currency: "$" }, Date.now());
+      t("置顶卡片：Claude 还列出 5 小时剩余和两个重置时间、月费", d2.main.pct === 92 && d2.rows.some(r => r[0] === "5 小时剩余额度" && r[1] === "51%") && d2.rows.some(r => r[0] === "5 小时额度重置") && d2.rows.some(r => r[0] === "费用"));
+      const d3 = w.pinCardData({ catalogId: "youtube", mode: "activity", provider: "youtube", account: { status: "ok", plan: { label: "Premium" } }, lastUsed: Date.now() - 3 * 86400000 }, Date.now());
+      t("置顶卡片：没有额度的服务中间显示最近使用", d3.main.title === "最近使用" && d3.main.text === "3 天前");
+      const d4 = w.pinCardData({ catalogId: "baidu-pan", account: { status: "ok", plan: { label: "SVIP" }, storage: { pct: 94, label: "4.7 TB / 5 TB" } } }, Date.now());
+      t("置顶卡片：网盘显示剩余空间", d4.main.title === "剩余空间" && d4.main.pct === 6);
+    }
     t("列表小字：额度快用完时进度条变红", /cap-bar hi/.test(w.capBarHtml({ provider: "claude", llm: { plan: { label: "Max" }, usage: { week: 95 } } })));
     t("列表小字：没有额度时不画进度条", w.capBarHtml({ provider: "chatgpt", llm: { plan: { label: "Plus" }, stats: { convs7: 11 } } }) === "");
     t("列表小字：没登录读不到时退回分类", cap({ catalogId: "youtube", account: { status: "logged_out", plan: { label: "Premium" } } }) === "影音娱乐");

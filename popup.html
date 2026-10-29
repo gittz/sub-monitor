@@ -346,6 +346,7 @@
   .sv-card .fixit button, .sv-card .acct button.mini { height:26px; padding:0 9px; border-radius:7px; font-size:11.5px; margin-top:6px; }
   .sv-foot { display:flex; align-items:center; gap:4px; margin-top:10px; }
   .sv-foot .sv-muted { font-size:11px; }
+  .sv-icon.on { color:var(--accent); background:var(--ad-soft); }
   .sv-icon { width:28px; height:28px; padding:0; border:0; border-radius:7px; background:transparent; color:var(--ad-muted); display:inline-flex; align-items:center; justify-content:center; cursor:pointer; }
   .sv-icon:hover { background:var(--ad-soft); color:var(--ad-fg); }
   .sv-icon.danger:hover { background:#fee2e2; color:#b91c1c; }
@@ -384,6 +385,31 @@
   .llm { margin-top:5px; font-size:11px; line-height:1.6; color:var(--muted); }
   .llm small.reset { font-size:inherit; color:var(--muted); opacity:.85; }
   .llm .q { white-space:nowrap; }
+  /* 置顶卡片：仿电子价签，放在订阅列表上面 */
+  #pinCard { margin:4px 0 12px; }
+  .pc { position:relative; border:2px solid var(--ad-fg, var(--fg)); border-radius:10px; background:var(--ad-card, var(--bg)); padding:10px 14px 8px; }
+  .pc-top { display:flex; align-items:center; gap:8px; padding-bottom:7px; border-bottom:1.5px solid var(--ad-fg, var(--fg)); }
+  .pc-top .sv-tile { width:26px; height:26px; }
+  .pc-top b { font-size:14px; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .pc-plan { font-size:13px; font-weight:700; letter-spacing:.5px; color:var(--pc-hot); text-transform:uppercase; white-space:nowrap; }
+  .pc-unpin { border:0; background:none; color:var(--ad-muted, var(--muted)); cursor:pointer; padding:2px; line-height:0; }
+  .pc-unpin:hover { color:var(--ad-fg, var(--fg)); }
+  .pc-sub { display:flex; justify-content:space-between; font-size:11px; color:var(--ad-muted, var(--muted)); padding:5px 0; border-bottom:1px solid var(--ad-border, var(--border)); }
+  .pc-sub .warn { color:var(--pc-hot); font-weight:600; }
+  .pc-main { text-align:center; padding:8px 0 6px; }
+  .pc-main .pc-bar { text-align:left; }
+  .pc-main .t { font-size:13px; font-weight:600; }
+  .pc-main .big { font-size:42px; font-weight:800; line-height:1.1; color:var(--pc-hot); letter-spacing:-1px; }
+  .pc-main .big.text { font-size:30px; padding:4px 0; }
+  .pc-bar { height:12px; border:1.5px solid var(--ad-fg, var(--fg)); border-radius:2px; margin:4px 0 3px; overflow:hidden; }
+  .pc-bar i { display:block; height:100%; background:var(--pc-hot); }
+  .pc-main .s { font-size:11.5px; color:var(--ad-muted, var(--muted)); }
+  .pc-rows { margin-top:2px; }
+  .pc-rows div { display:flex; justify-content:space-between; gap:10px; font-size:12px; padding:5px 0; border-top:1px solid var(--ad-border, var(--border)); }
+  .pc-rows div span { color:var(--ad-muted, var(--muted)); }
+  .pc-rows div b { font-weight:600; text-align:right; }
+  /* 和电子价签一样，大数字、进度条、套餐用红色 */
+  .pc { --pc-hot:#c62828; }
   .llm b { color:var(--fg); font-weight:600; }
   .meter { display:inline-block; width:46px; height:6px; border-radius:3px; background:var(--border); vertical-align:middle; margin:0 3px; overflow:hidden; }
   .meter i { display:block; height:100%; background:var(--accent); }
@@ -658,6 +684,7 @@
       <div><h2>给订阅，做个小整理。</h2><p>每一笔开销，都心里有数。</p></div>
       <span class="hero-art"><svg viewBox="0 0 40 32" width="50" height="40" aria-hidden="true"><defs><linearGradient id="lgb" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3b82f6"/><stop offset="1" stop-color="#1d4ed8"/></linearGradient></defs><rect x="6" y="2" width="30" height="20" rx="4" transform="rotate(-8 21 12)" fill="#93c5fd"/><rect x="2" y="7" width="32" height="22" rx="5" fill="url(#lgb)"/><rect x="2" y="12" width="32" height="3.2" fill="#1e40af" opacity=".45"/><path d="M10 20.5q2 2 4 0M19 20.5q2 2 4 0" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round"/><circle cx="33" cy="25" r="4.2" fill="#fb923c" stroke="#fff" stroke-width="1.6"/></svg></span>
     </div>
+    <div id="pinCard" hidden></div>
     <div class="sv-stats">
       <div class="sv-stat"><span>我的订阅</span><b><em id="cnt">0</em><small>个</small></b></div>
       <div class="sv-stat"><span>每月订阅支出</span><b id="spend">$0</b><small class="sv-note" id="waste"></small></div>
