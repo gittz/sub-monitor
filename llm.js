@@ -155,6 +155,22 @@
           }
         }
 
+        // Codex 用量（ChatGPT 账号自带）：每个窗口有已用百分比、窗口长度和重置时间（实测：免费账号是 30 天窗口，
+        // 付费账号一般是 5 小时 + 每周两个窗口）。这个接口出错不影响登录判断
+        const lo = out.loggedOut;
+        const wham = await getJson("codex_usage", "/backend-api/wham/usage", auth);
+        out.loggedOut = lo;
+        const rl = wham && wham.rate_limit;
+        if (rl && typeof rl === "object") {
+          const u = {};
+          [["codex_primary", rl.primary_window], ["codex_secondary", rl.secondary_window]].forEach(([k, w]) => {
+            if (!w || typeof w.used_percent !== "number") return;
+            u[k] = { utilization: w.used_percent, windowSec: w.limit_window_seconds || null,
+                     resetsAt: w.reset_at ? w.reset_at * 1000 : (w.reset_after_seconds != null ? Date.now() + w.reset_after_seconds * 1000 : null) };
+          });
+          if (Object.keys(u).length) out.usage = u;
+        }
+
         const convs = await getJson("conversations", "/backend-api/conversations?offset=0&limit=100&order=updated", auth);
         if (convs) {
           const list = convs.items || convs.data || (Array.isArray(convs) ? convs : []);
@@ -240,12 +256,30 @@
   function pickUsage(usage) {
     if (!usage) return null;
     const g = (re) => { for (const k in usage) if (re.test(k)) return usage[k]; return null; };
-    const fh = g(/^five_hour$|5_?hour|session/i);
-    const sd = g(/^seven_day$|^weekly$|week(?!.*(opus|sonnet))/i);
+    // 只给了窗口长度的（ChatGPT / Codex）：≤ 6 小时算 5 小时额度，≤ 8 天算每周，更长算每月
+    const byWin = {};
+    for (const k in usage) {
+      const w = usage[k], s = w && w.windowSec;
+      if (!s) continue;
+      const slot = s <= 6 * 3600 ? "fh" : s <= 8 * 86400 ? "wk" : "mo";
+      if (!byWin[slot]) byWin[slot] = w;
+    }
+    const fh = g(/^five_hour$|5_?hour|session/i) || byWin.fh;
+    const sd = g(/^seven_day$|^weekly$|week(?!.*(opus|sonnet))/i) || byWin.wk;
     const so = g(/seven_day_opus|opus/i);
+    const mo = g(/^monthly$|^thirty_day$/i) || byWin.mo;
     const v = (w) => (w && typeof w.utilization === "number" ? Math.round(w.utilization) : null);
-    return { fiveHour: v(fh), fiveHourReset: fh && fh.resetsAt || null,
-             week: v(sd), weekReset: sd && sd.resetsAt || null, weekOpus: v(so) };
+    // 重置时间统一成毫秒数（Claude 给 ISO 字符串，Codex 给秒）
+    const rs = (w) => {
+      const x = w && w.resetsAt;
+      if (x == null || x === "") return null;
+      if (typeof x === "number") return x < 1e11 ? x * 1000 : x;
+      const t = Date.parse(x); return isNaN(t) ? null : t;
+    };
+    return { fiveHour: v(fh), fiveHourReset: rs(fh),
+             week: v(sd), weekReset: rs(sd), weekOpus: v(so),
+             month: v(mo), monthReset: rs(mo),
+             source: Object.keys(usage).some(k => /^codex_/.test(k)) ? "codex" : "" };
   }
 
   // 采样：每次检查存一个点，保留 90 天

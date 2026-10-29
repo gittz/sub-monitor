@@ -103,7 +103,7 @@ setTimeout(async () => {
   // 常见服务
   t("从浏览记录发现：最近访问过 YouTube → 添加按钮", /YouTube/.test($("discList").textContent) && !!$("discList").querySelector('[data-cat="youtube"]'));
   const cards = $("catGrid").querySelectorAll(".ad-card");
-  t("目录列出全部服务，已添加的标记为已添加", cards.length === 13 && $("catGrid").querySelectorAll(".ad-card.added").length === 2);
+  t("目录列出全部服务，已添加的标记为已添加", cards.length === 15 && $("catGrid").querySelectorAll(".ad-card.added").length === 2);
   t("分类标签：全部 + 4 类", $("catCats").querySelectorAll("span").length === 5);
   $("catCats").querySelectorAll("span")[3].click();
   t("点分类只显示该类", !/YouTube/.test($("catGrid").textContent) && /腾讯视频/.test($("catGrid").textContent));
@@ -140,6 +140,18 @@ setTimeout(async () => {
     t("列表小字：Claude 显示套餐和本周额度", cap({ provider: "claude", llm: { plan: { label: "Pro" }, usage: { fiveHour: 62, week: 47 } } }) === "Pro · 本周额度 47%");
     t("列表小字：ChatGPT 没有额度时显示近 7 天对话数", cap({ provider: "chatgpt", llm: { plan: { label: "Free" }, stats: { convs7: 0 } } }) === "Free · 近 7 天 0 个对话");
     t("列表小字：收录服务显示套餐和续费日", /^Premium · \d\d\/\d\d 续费$/.test(cap({ catalogId: "youtube", account: { status: "ok", plan: { label: "Premium" }, renewAt: Date.now() + 5 * DAY } })));
+    const cb = w.capBarHtml({ provider: "claude", llm: { plan: { label: "Pro" }, usage: { week: 4 } } });
+    t("列表小字：文字不变，额度另外画一条进度条", w.subCaptionHtml({ provider: "claude", llm: { plan: { label: "Pro" }, usage: { week: 4 } } }) === "Pro · 本周额度 4%" && /class="cap-bar"[^>]*><i style="width:4%">/.test(cb), cb);
+    const soon = Date.now() + 3 * 86400000;
+    const md = new Date(soon).toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" });
+    t("列表小字：额度后面跟重置时间", w.subCaption({ provider: "claude", llm: { plan: { label: "Pro" }, usage: { week: 8, weekReset: soon } } }) === `Pro · 本周额度 8% · ${md} 重置`);
+    t("列表小字：ChatGPT 的 Codex 额度没用过时仍显示对话数", w.subCaption({ provider: "chatgpt", llm: { plan: { label: "Plus" }, stats: { convs7: 11 }, usage: { source: "codex", month: 0, monthReset: soon } } }) === "Plus · 近 7 天 11 个对话");
+    t("列表小字：ChatGPT 用了 Codex 时显示 Codex 额度和重置", w.subCaption({ provider: "chatgpt", llm: { plan: { label: "Plus" }, usage: { source: "codex", week: 30, weekReset: soon } } }) === `Plus · Codex 本周额度 30% · ${md} 重置`);
+    t("列表小字：Cursor 显示本月额度和重置", w.subCaption({ catalogId: "cursor", account: { status: "ok", plan: { label: "Pro" }, quota: { pct: 63.3, resetAt: soon, label: "本月额度" } } }) === `Pro · 本月额度 63% · ${md} 重置` && /cap-bar/.test(w.capBarHtml({ catalogId: "cursor", account: { status: "ok", plan: { label: "Pro" }, quota: { pct: 63.3, resetAt: soon, label: "本月额度" } } })));
+    t("列表小字：DeepSeek 显示 API 余额", w.subCaption({ catalogId: "deepseek", account: { status: "ok", plan: { label: "免费版", paid: false } }, apiInfo: { balance: 18.71, currency: "CNY" } }) === "免费版 · API 余额 ¥18.71");
+    t("列表小字：智谱 Coding Plan 显示 5 小时额度和重置", w.subCaption({ catalogId: "zhipu", account: { status: "ok", plan: { label: "GLM Coding Pro", paid: true } }, apiInfo: { balance: 0, currency: "CNY", quota: { pct: 42, resetAt: soon, label: "5 小时额度" } } }) === `GLM Coding Pro · 5 小时额度 42% · ${md} 重置`);
+    t("列表小字：额度快用完时进度条变红", /cap-bar hi/.test(w.capBarHtml({ provider: "claude", llm: { plan: { label: "Max" }, usage: { week: 95 } } })));
+    t("列表小字：没有额度时不画进度条", w.capBarHtml({ provider: "chatgpt", llm: { plan: { label: "Plus" }, stats: { convs7: 11 } } }) === "");
     t("列表小字：没登录读不到时退回分类", cap({ catalogId: "youtube", account: { status: "logged_out", plan: { label: "Premium" } } }) === "影音娱乐");
   }
   {
@@ -152,7 +164,7 @@ setTimeout(async () => {
     const h3 = w.usageCells({ mode: "browser", urlPattern: "x.com", lastUsed: Date.now() }, vs, false);
     t("手动网址：最近使用按浏览器访问", /按浏览器访问/.test(h3));
   }
-  t("网盘：列表里直接显示空间用量", /空间 120 GB \/ 5 TB · 2%/.test(sub2));
+  t("网盘：列表里直接显示空间用量（进度条，悬停看具体用量）", /空间 120 GB \/ 5 TB · 2%<\/small><span class="cap-bar" title="已用 120 GB \/ 5 TB"><i style="width:2%">/.test(sub2));
   t("账户信息：套餐 + 空间 + 降档建议", /超级会员 SVIP/.test(sub2) && /120 GB/.test(sub2) && /换小一档/.test(sub2));
   t("未登录：提示不代表没在用，给「打开账户页」", /不代表你没在用/.test(sub2) && /data-copen="3"/.test(sub2));
   sent.length = 0;

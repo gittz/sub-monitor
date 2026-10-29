@@ -18,8 +18,9 @@ const parseDemo = (text, url) => C.parseAccountPage(DEMO, { text, url: url || DE
 console.log("== 目录 ==");
 check("4 个分类都有服务", C.CATEGORIES.every((c) => C.PROVIDERS.some((p) => p.cat === c.key)));
 check("id 不重复", new Set(C.PROVIDERS.map((p) => p.id)).size === C.PROVIDERS.length);
-check("除 Claude/ChatGPT 外都有账户页和套餐规则", C.PROVIDERS.filter((p) => !p.special).every((p) => p.accountUrl && p.plans && p.plans.length));
-check("只收录已经适配好的服务", C.PROVIDERS.map((p) => p.id).sort().join() === "baidu-pan,bilibili,chatgpt,claude,copilot,cursor,gemini,grok,midjourney,perplexity,poe,tencent-video,youtube");
+// DeepSeek 这类只有免费版的服务没有付费套餐规则，但必须有免费规则
+check("除 Claude/ChatGPT 外都有账户页和套餐规则", C.PROVIDERS.filter((p) => !p.special).every((p) => p.accountUrl && p.plans && (p.plans.length || p.free)));
+check("只收录已经适配好的服务", C.PROVIDERS.map((p) => p.id).sort().join() === "baidu-pan,bilibili,chatgpt,claude,copilot,cursor,deepseek,gemini,grok,midjourney,perplexity,poe,tencent-video,youtube,zhipu");
 check("权限来源包含账户页所在域名", C.originsOf(C.BY_ID["tencent-video"]).indexOf("https://film.qq.com/*") >= 0);
 
 console.log("== 账户页解析 ==");
@@ -66,8 +67,11 @@ check("YouTube 没有会员", parse("youtube", "Memberships\nYou have no members
 
 {
   // Cursor：用量接口 JSON（free 为实测原文）
-  const cfree = parse("cursor", '{"billingCycleStart":"2026-10-17T05:20:29.085Z","billingCycleEnd":"2026-11-17T05:20:29.085Z","membershipType":"free","limitType":"user","isUnlimited":false,"autoModelSelectedDisplayMessage":"You\'ve used 0% of your included total usage","individualUsage":{"plan":{"enabled":true,"used":0,"limit":0}}}');
+  const cfree = parse("cursor", '{"billingCycleStart":"2026-10-17T05:20:29.085Z","billingCycleEnd":"2026-11-17T05:20:29.085Z","membershipType":"free","limitType":"user","isUnlimited":false,"autoModelSelectedDisplayMessage":"You\'ve used 0% of your included total usage","individualUsage":{"plan":{"enabled":true,"used":0,"limit":0,"remaining":0,"breakdown":{"included":0,"bonus":0,"total":0},"autoPercentUsed":0,"apiPercentUsed":0,"totalPercentUsed":0},"onDemand":{"enabled":false,"used":0,"limit":null,"remaining":null}},"teamUsage":{}}');
   check("Cursor：membershipType free → 免费", cfree.status === "ok" && cfree.plan.paid === false);
+  check("Cursor：额度 0%，重置时间 = 计费周期结束（实测字段）", cfree.quota && cfree.quota.pct === 0 && cfree.quota.resetAt === Date.parse("2026-11-17T05:20:29.085Z") && cfree.quota.label === "本月额度");
+  const cpro = parse("cursor", '{"billingCycleEnd":"2026-11-17T05:20:29.085Z","membershipType":"pro","individualUsage":{"plan":{"totalPercentUsed":63.27}}}');
+  check("Cursor：Pro 额度 63.3%，续费日也取计费周期结束", cpro.quota.pct === 63.3 && cpro.renewAt === Date.parse("2026-11-17T05:20:29.085Z"));
   check("Cursor：pro", parse("cursor", '{"membershipType":"pro","limitType":"user"}' + " ".repeat(300)).plan.label === "Pro");
   check("Cursor：free_trial 不当成免费", parse("cursor", '{"membershipType":"free_trial"}' + " ".repeat(300)).plan.label === "Pro 试用");
   check("Cursor：ultra", parse("cursor", '{"membershipType":"ultra"}' + " ".repeat(300)).plan.label === "Ultra");
@@ -91,6 +95,18 @@ check("YouTube 没有会员", parse("youtube", "Memberships\nYou have no members
   const mf = parse("midjourney", "Midjourney\nExplore\nCreate\nSubscribe\nMy account\nPurchase a subscription\nChoose the plan that works for you\nI'm already subscribed\nYearly billing\nMonthly billing\nBasic Plan\n$10\n$8\n/ month\nSubscribe\nStandard Plan\n$30\n$24\n/ month\nPro Plan\n$60\nMega Plan\n$120\n");
   check("Midjourney：未订阅（推荐套餐不算）", mf.status === "ok" && mf.plan.paid === false);
   check("Midjourney：Your plan → Standard", parse("midjourney", "My account\nYour plan\nStandard Plan\nRenews on Nov 27\n" + "x".repeat(300)).plan.label === "Standard");
+}
+
+{
+  // DeepSeek：首页侧栏（实测文字开头），没有付费套餐
+  const ds = parse("deepseek", "开启新对话\n2026-09\nSpreadJS竞品分析\n婚礼筹备清单\n2026-08\nJS监听组合键实现\n" + "x".repeat(300));
+  check("DeepSeek：登录后首页 → 免费", ds.status === "ok" && ds.plan.paid === false);
+  check("DeepSeek：登录页 → 没登录", parse("deepseek", "登录\n手机号\n验证码\n密码登录", "https://chat.deepseek.com/sign_in").status === "logged_out");
+}
+
+{
+  const zp = parse("zhipu", "财务\n财务总览\n账户充值\n资源包\n财务总览\n当前余额余额预警未开启\n设置\n充值明细\n0元\n可用余额\n0元\n累计充值\n0元\n赠送金额\n" + "x".repeat(300));
+  check("智谱：财务总览页（实测文字）→ 免费 / 按量", zp.status === "ok" && zp.plan.paid === false);
 }
 
 console.log("== 未登录 / 认不出 ==");

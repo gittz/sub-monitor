@@ -107,9 +107,9 @@ ctx = loadBackground("https://x.com/", fakeDocWith([]));
 const eval_ = (expr) => vm.runInContext(expr, ctx);
 const cat = eval_("CATALOG");
 check("YouTube 标为已实测", cat.youtube.verified === true);
-check("只保留适配好的读取方式", Object.keys(cat).sort().join() === "bilibili,chatgpt,claude,copilot,cursor,gemini,grok,midjourney,perplexity,poe,tencent,youtube");
+check("只保留适配好的读取方式", Object.keys(cat).sort().join() === "bilibili,chatgpt,claude,copilot,cursor,deepseek,gemini,grok,midjourney,perplexity,poe,tencent,youtube,zhipu");
 // 例外名单：接口和空结果已实测、但有记录时的字段还没见过的（Cursor：账号暂无使用记录）
-const PENDING_VERIFY = ["cursor", "midjourney"];
+const PENDING_VERIFY = ["cursor", "midjourney", "zhipu"];
 check("每个读取方式都实测过或有专用读法", Object.keys(cat).every(k => cat[k].verified === true || cat[k].strategy === "llm" || (PENDING_VERIFY.includes(k) && cat[k].verified === false)));
 check("已知无活动页的服务被登记（Spotify 等）",
   eval_("NO_ACTIVITY_PAGE").some(x => x.match === "spotify.com"));
@@ -179,6 +179,24 @@ console.log("== 官方记录为空 → 按闲置算 ==");
   check("读取失败时记下细节（状态码 / 最终网址，不带参数）", f1.signal.ok === false && /不是 JSON/.test(f1.signal.detail) && /login\.live\.com\/oauth/.test(f1.signal.detail) && !/x=1/.test(f1.signal.detail), f1.signal.detail);
   const cfgCat = c5.getProviderConfig({ provider: "copilot", catalogId: "copilot", activityUrl: "https://copilot.microsoft.com/old" });
   check("常见服务不用订阅里过时的地址", cfgCat.activityUrl === "https://copilot.com/chat/all");
+}
+
+{
+  // 附加来源合并（DeepSeek：对话 + 开放平台 API 调用）
+  const c6 = loadBackground("https://x.com/", fakeDocWith([]));
+  c6.readActivityMain = async () => ({ ids: ["chat@1"], lastTs: 1789958335770, count: 1 });
+  c6.readExtraSource = async () => ({ ids: ["api-day@29881680"], lastTs: 1792987200000, info: { balance: 18.71, currency: "CNY" } });
+  const m1 = await c6.readActivity(c6.getProviderConfig({ provider: "deepseek", catalogId: "deepseek" }));
+  check("附加来源：API 调用比对话晚 → 最近使用取 API 那天；余额带回", m1.lastTs === 1792987200000 && m1.ids.length === 2 && m1.info.balance === 18.71);
+  c6.readActivityMain = async () => ({ ids: [], empty: true });
+  const m2 = await c6.readActivity(c6.getProviderConfig({ provider: "deepseek", catalogId: "deepseek" }));
+  check("附加来源：没有对话但有 API 调用 → 不算空记录", m2.empty === false && m2.lastTs === 1792987200000);
+  c6.readActivityMain = async () => ({ ids: [], loggedOut: true });
+  const m3 = await c6.readActivity(c6.getProviderConfig({ provider: "deepseek", catalogId: "deepseek" }));
+  check("附加来源：对话页没登录时不拿 API 记录顶替", m3.loggedOut === true && !m3.ids.length && m3.info.balance === 18.71);
+  const sub = { id: "z", mode: "activity", provider: "deepseek" };
+  await c6.applyActivityResult(sub, m3);
+  check("余额照样存下来（和登录判断无关）", sub.apiInfo && sub.apiInfo.balance === 18.71);
 }
 
 console.log(`\n结果：${pass} 通过 / ${fail} 失败`);
