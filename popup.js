@@ -143,7 +143,14 @@ async function runGrantWindow() {
 }
 
 // ---------- 渲染订阅列表 ----------
+// 列表里名称旁的置顶星标：已置顶一直显示（实心），没置顶的鼠标移上去才出现
+function pinStar(s) {
+  const on = pinnedIds().includes(s.id);
+  return `<button type="button" class="sv-star${on ? " on" : ""}" data-pin="${esc(s.id)}" title="${on ? "取消置顶" : "置顶到上方（最多 3 个）"}" aria-pressed="${on}">${on ? SV_ICON.starOn : SV_ICON.star}</button>`;
+}
 const SV_ICON = {
+  star: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/></svg>',
+  starOn: '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/></svg>',
   pin: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>',
   check: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>',
   edit: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.38 3.62a1 1 0 0 1 3 3L7.37 18.64a2 2 0 0 1-.86.5l-2.87.84a.5.5 0 0 1-.62-.62l.84-2.87a2 2 0 0 1 .5-.86z"/></svg>',
@@ -238,18 +245,27 @@ function subCaptionRaw(s) {
   if (s.provider === "claude" || s.provider === "chatgpt") return "AI 助手";
   return s.urlPattern || (s.mode === "none" ? "电视 / 手机" : "");
 }
-// ---------- 置顶卡片（只能置顶一个，像电子价签一样放在列表上面） ----------
-async function setPin(id) {
-  state.pinned = id;
+// ---------- 置顶（最多 3 个）：列表上方一排小卡片，点开看详情 ----------
+const PIN_MAX = 3;
+const pinnedIds = () => (Array.isArray(state.pinned) ? state.pinned : []).filter(id => (state.subs || []).some(x => x.id === id));
+async function togglePin(id) {
+  const cur = pinnedIds();
+  let next;
+  if (cur.includes(id)) next = cur.filter(x => x !== id);
+  else {
+    if (cur.length >= PIN_MAX) { busyToast(`最多置顶 ${PIN_MAX} 个，先取消一个再置顶`, "bad"); return; }
+    next = cur.concat(id);
+  }
+  state.pinned = next;
   renderSubs();
-  await send({ type: "SET_PIN", id });
+  await send({ type: "SET_PIN", ids: next });
 }
+// 卡片内容：主指标（剩余额度 / 剩余空间 / 最近使用）+ 详情里的几行
 function pinCardData(s, now) {
   const md = (t) => new Date(t).toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" });
   const mdhm = (t) => `${md(t)} ${new Date(t).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false })}`;
   const when = (t) => (t && t > now ? mdhm(t) : "--");
   const pctLeft = (v) => Math.max(0, Math.min(100, 100 - Math.round(v)));
-  const p = s.catalogId && SubCatalog.BY_ID[s.catalogId];
   const a = s.account || {};
   const L = s.llm;
   const plan = (L && L.plan && L.plan.label) || (a.plan && a.plan.label) || "";
@@ -258,9 +274,9 @@ function pinCardData(s, now) {
   const U = L && L.usage;
   const cx = U && U.source === "codex" ? "Codex " : "";
   if (U && (U.week != null || U.fiveHour != null || U.month != null)) {
-    // 大模型：最主要的额度放中间（本周 > 5 小时 > 本月），其余额度和各自的重置时间列在下面
-    const [k, label] = U.week != null ? ["week", "本周"] : U.fiveHour != null ? ["fiveHour", "5 小时"] : ["month", "本月"];
-    main = { title: `${cx}${label}剩余额度`, pct: pctLeft(U[k]), used: Math.round(U[k]) };
+    // 大模型：主指标取本周 > 5 小时 > 本月，其余额度和各自的重置时间放详情
+    const [k, label, rk] = U.week != null ? ["week", "本周", "weekReset"] : U.fiveHour != null ? ["fiveHour", "5 小时", "fiveHourReset"] : ["month", "本月", "monthReset"];
+    main = { title: `${cx}${label}剩余额度`, short: `${cx}${label}剩余`, pct: pctLeft(U[k]), used: Math.round(U[k]), reset: U[rk] };
     if (U.fiveHour != null && k !== "fiveHour") rows.push([`${cx}5 小时剩余额度`, `${pctLeft(U.fiveHour)}%`]);
     if (U.month != null && k !== "month") rows.push([`${cx}月度剩余额度`, `${pctLeft(U.month)}%`]);
     if (U.weekReset || U.week != null) rows.push(["周额度重置", when(U.weekReset)]);
@@ -268,55 +284,64 @@ function pinCardData(s, now) {
     if (U.month != null) rows.push(["月额度重置", when(U.monthReset)]);
   } else if ((a.quota && a.quota.pct != null) || (s.apiInfo && s.apiInfo.quota && s.apiInfo.quota.pct != null)) {
     const q = (s.apiInfo && s.apiInfo.quota && s.apiInfo.quota.pct != null) ? s.apiInfo.quota : a.quota;
-    main = { title: q.label.replace("额度", "剩余额度"), pct: pctLeft(q.pct), used: Math.round(q.pct) };
+    main = { title: q.label.replace("额度", "剩余额度"), short: q.label.replace("额度", "剩余"), pct: pctLeft(q.pct), used: Math.round(q.pct), reset: q.resetAt };
     rows.push([q.label.replace("本月", "月") + "重置", when(q.resetAt)]);
   } else if (a.storage && a.storage.pct != null) {
-    main = { title: "剩余空间", pct: pctLeft(a.storage.pct), used: Math.round(a.storage.pct), usedText: `已使用 ${Math.round(a.storage.pct)}%（${a.storage.label}）` };
+    main = { title: "剩余空间", short: "剩余空间", pct: pctLeft(a.storage.pct), used: Math.round(a.storage.pct), usedText: `已使用 ${Math.round(a.storage.pct)}%（${a.storage.label}）` };
+    rows.push(["空间", a.storage.label]);
   } else {
-    // 没有额度的服务：中间显示最近使用
-    main = { title: "最近使用", text: s.lastUsedFloor ? "90 天+" : s.lastUsed ? fmtShort(s.lastUsed) : "—", sub: usageBasis(s, !!L).text };
+    // 没有额度的服务：主指标是最近使用，右边列出判断依据和访问情况
+    main = { title: "最近使用", short: "最近使用", text: s.lastUsedFloor ? "90天+" : s.lastUsed ? fmtShort(s.lastUsed) : "—", sub: usageBasis(s, !!L).text };
+    const vs = visitStats(s.visitLog, now);
+    const st = computeStatus(s, now);
+    rows.push(["判断依据", usageBasis(s, !!L).text]);
+    if (s.watchTitle && s.watchTitle.title && s.lastWatched && s.watchTitle.at === s.lastWatched) rows.push(["最近看", s.watchTitle.title]);
+    rows.push(["最近访问", vs.last ? fmtShort(vs.last) : "无记录"]);
+    rows.push(["近 7 / 30 天访问", `${vs.d7} / ${vs.d30} 次`]);
+    rows.push(["闲置提醒", `${s.idleDays || 30} 天没用${st.state === "idle" ? "（已到）" : ""}`]);
   }
   if (s.apiInfo && s.apiInfo.balance != null) rows.push(["API 余额", `${s.apiInfo.currency === "CNY" ? "¥" : (s.apiInfo.currency || "") + " "}${Number(s.apiInfo.balance).toFixed(2)}`]);
   if (main.pct != null) rows.push(["最近使用", s.lastUsedFloor ? "90 天+" : s.lastUsed ? fmtShort(s.lastUsed) : "—"]);
   if (s.price) rows.push(["费用", `${s.currency || "$"}${Number(s.price).toFixed(2)} / 月`]);
   const renew = (L && L.renewAt) || a.renewAt;
   if (renew) rows.push(["下次续费", md(renew)]);
-  return { plan, main, rows: rows.slice(0, 5) };
+  return { plan, main, rows };
 }
+function ringHtml(pct, center, tone) {
+  const r = 26, c = 2 * Math.PI * r, v = pct == null ? 0 : Math.max(0, Math.min(100, pct));
+  return `<span class="pn-ring ${tone}"><svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="${r}" class="trk"/>${pct == null ? "" :
+    `<circle cx="32" cy="32" r="${r}" class="val" stroke-dasharray="${(c * v / 100).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 32 32)"/>`}</svg><b>${center}</b></span>`;
+}
+// 置顶的订阅：每个一张完整的信息卡（不用点开），左边主指标圆环，右边列出全部细节
 function renderPinCard(now) {
   const box = $("pinCard");
   if (!box) return;
-  const s = state.pinned && (state.subs || []).find(x => x.id === state.pinned);
-  if (!s || sortMode) { box.hidden = true; box.innerHTML = ""; return; }
-  const d = pinCardData(s, now);
-  const st = computeStatus(s, now);
-  const today = new Date(now).toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit", weekday: "short" });
-  const upd = s.lastChecked ? new Date(s.lastChecked).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }) : "";
-  const flag = st.state === "idle" ? `<span class="warn">${esc(st.days)} 天未使用</span>`
-    : st.state === "signal_lost" ? `<span class="warn">暂时读不到${upd ? " · " + esc(upd) : ""}</span>` : upd ? `更新 ${esc(upd)}` : "";
-  const m = d.main;
-  const low = m.pct != null && m.pct <= 10;
-  const mainHtml = m.pct != null
-    ? `<div class="t">${esc(m.title)}</div><div class="big">${m.pct}%</div><div class="pc-bar"><i style="width:${m.pct}%"></i></div><div class="s">${esc(m.usedText || `已使用 ${m.used}%`)}</div>`
-    : `<div class="t">${esc(m.title)}</div><div class="big text">${esc(m.text)}</div><div class="s">${esc(m.sub || "")}</div>`;
-  box.innerHTML = `<div class="pc ${low || st.state === "idle" ? "ok" : "calm"}" data-toggle="${esc(s.id)}">
-    <div class="pc-top">${avatarHtml(s.catalogId || s.provider || s.id)}<b>${esc(s.name)}</b>${d.plan ? `<span class="pc-plan">${esc(d.plan)}</span>` : ""}
-      <button type="button" class="pc-unpin" data-unpin="1" title="取消置顶">${SV_ICON.pin}</button></div>
-    <div class="pc-sub"><span>${esc(today)}</span><span>${flag}</span></div>
-    <div class="pc-main">${mainHtml}</div>
-    ${d.rows.length ? `<div class="pc-rows">${d.rows.map(([k, v]) => `<div><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join("")}</div>` : ""}
-  </div>`;
+  const ids = pinnedIds();
+  if (!ids.length || sortMode) { box.hidden = true; box.innerHTML = ""; return; }
+  box.innerHTML = ids.map(id => {
+    const s = state.subs.find(x => x.id === id);
+    const d = pinCardData(s, now), st = computeStatus(s, now), m = d.main;
+    const tone = m.pct == null ? (st.state === "idle" ? "warn" : "none") : m.pct < 20 ? "bad" : m.pct < 50 ? "warn" : "good";
+    const center = m.pct != null ? `${m.pct}<small>%</small>` : `<span class="txt">${esc(m.text)}</span>`;
+    const upd = s.lastChecked ? `更新 ${new Date(s.lastChecked).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false })}` : "";
+    const flag = st.state === "idle" ? `<span class="pn-flag warn">${esc(st.days)} 天未使用</span>`
+      : st.state === "signal_lost" ? `<span class="pn-flag warn">暂时读不到</span>` : upd ? `<span class="pn-flag">${esc(upd)}</span>` : "";
+    const sub = m.pct != null ? (m.usedText || `已使用 ${m.used}%`) : (m.sub || "");
+    const rows = d.rows.map(([k, v]) => `<div><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join("");
+    return `<div class="pn-card">
+      <div class="pn-head">${avatarHtml(s.catalogId || s.provider || s.id)}<b>${esc(s.name)}</b>${d.plan ? `<span class="pn-plan">${esc(d.plan)}</span>` : ""}${flag}
+        <button type="button" class="pn-x" data-pin="${esc(id)}" title="取消置顶">×</button></div>
+      <div class="pn-body">
+        <div class="pn-main">${ringHtml(m.pct, center, tone)}<div class="pn-label">${esc(m.short || m.title)}</div><div class="pn-sub">${esc(sub)}</div></div>
+        ${rows ? `<div class="pn-rows">${rows}</div>` : ""}
+      </div>
+    </div>`;
+  }).join("");
   box.hidden = false;
 }
 $("pinCard").addEventListener("click", async (e) => {
-  if (e.target.closest && e.target.closest("[data-unpin]")) { await setPin(null); return; }
-  // 点卡片：展开列表里那一行并滚过去
-  const id = state.pinned;
-  if (!id) return;
-  openRows.add(id);
-  renderSubs();
-  const row = document.querySelector(`#subList [data-toggle="${CSS && CSS.escape ? CSS.escape(id) : id}"]`);
-  if (row && row.scrollIntoView) row.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  const b = e.target.closest && e.target.closest("[data-pin]");
+  if (b) await togglePin(b.dataset.pin);
 });
 function renderSubs() {
   const now = Date.now();
@@ -391,7 +416,7 @@ function renderSubs() {
     const busy = checking.has(s.id), open = openRows.has(s.id);
     return `<div class="sv-row st-${st.state}${open ? " open" : ""}" data-id="${esc(s.id)}">
       <div class="sv-main" data-toggle="${esc(s.id)}" title="点开看详情">
-        <div class="sv-prod">${avatarHtml(s.catalogId || s.provider || s.id)}<div><b>${esc(s.name)}</b><small>${subCaptionHtml(s)}${s.price ? `<span class="sv-fee-in"> · ${esc(s.currency || "$")}${Number(s.price).toFixed(2)}/月</span>` : ""}</small>${capBarHtml(s)}</div></div>
+        <div class="sv-prod">${avatarHtml(s.catalogId || s.provider || s.id)}<div><b>${esc(s.name)}${pinStar(s)}</b><small>${subCaptionHtml(s)}${s.price ? `<span class="sv-fee-in"> · ${esc(s.currency || "$")}${Number(s.price).toFixed(2)}/月</span>` : ""}</small>${capBarHtml(s)}</div></div>
         <span class="sv-fee">${fee}</span>
         <span class="sv-used${st.state === "idle" ? " warm" : ""}">${esc(used)}</span>
         <span class="sv-status ${st.state}">${esc(SV_STATUS[st.state])}</span>
@@ -407,7 +432,6 @@ function renderSubs() {
         <div class="sv-foot">
           <span class="sv-muted">${known ? "最近检查 " + esc((s.lastChecked || (s.account && s.account.checkedAt)) ? fmtCheck(s.lastChecked || s.account.checkedAt) : "还没检查") : "只统计浏览器访问"}</span>
           <button class="sv-icon${busy ? " spinning" : ""}" data-chk="${esc(s.id)}" title="${busy ? "检查中…" : "检查"}" ${busy ? "disabled" : ""}>${SV_ICON.check}</button>
-          <button class="sv-icon${state.pinned === s.id ? " on" : ""}" data-pin="${esc(s.id)}" title="${state.pinned === s.id ? "取消置顶" : "置顶：在列表上方显示一张大卡片（只能置顶一个）"}">${SV_ICON.pin}</button>
           <button class="sv-icon" data-edit="${esc(s.id)}" title="编辑">${SV_ICON.edit}</button>
           <button class="sv-icon danger" data-del="${esc(s.id)}" title="删除">${SV_ICON.del}</button>
         </div>
@@ -1384,7 +1408,7 @@ $("subList").addEventListener("click", async (e) => {
     if (row) { const id = row.dataset.toggle; openRows.has(id) ? openRows.delete(id) : openRows.add(id); renderSubs(); }
     return;
   }
-  if (ds.pin) { await setPin(state.pinned === ds.pin ? null : ds.pin); return; }
+  if (ds.pin) { await togglePin(ds.pin); return; }
   const edit = ds.edit, del = ds.del, fix = ds.fix;
   let chk = ds.chk, cdiagAlt = null;
   // 开发排查：按住 Alt 点「检查」= 诊断（显示读取明细），只对收录服务有效

@@ -1822,8 +1822,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     try {
       switch (msg && msg.type) {
         case "GET_STATE": {
-          const { subs = [], records = [], lastCheck = null, paused = false, subOrder = null, pendingGrant = null, pinnedSub = null } =
-            await chrome.storage.local.get(["subs", "records", "lastCheck", "paused", "subOrder", "pendingGrant", "pinnedSub"]);
+          const { subs = [], records = [], lastCheck = null, paused = false, subOrder = null, pendingGrant = null, pinnedSub = null, pinnedSubs = null } =
+            await chrome.storage.local.get(["subs", "records", "lastCheck", "paused", "subOrder", "pendingGrant", "pinnedSub", "pinnedSubs"]);
+          // 置顶（最多 3 个，按置顶先后）；兼容 2.41 只能置顶一个时存的 pinnedSub
+          const pinIds = (Array.isArray(pinnedSubs) ? pinnedSubs : pinnedSub ? [pinnedSub] : []).filter(id => subs.some(x => x.id === id)).slice(0, 3);
           const { mailScan = null, mailIgnored = [], mailPrefs = {}, grantResult = null, history = null } =
             await chrome.storage.local.get(["mailScan", "mailIgnored", "mailPrefs", "grantResult", "history"]);
           const histOn = await hasHistoryPermission();
@@ -1832,7 +1834,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           // 打开弹窗时如果超过 10 分钟没同步，拉一下云端（别的设备可能改过）
           getSyncState().then(s => { if (s.enabled && authNow && Date.now() - (s.lastSyncAt || 0) > 10 * 60000) syncNow("open").catch(() => {}); });
           sendResponse({ ok: true, subs, records, lastCheck, paused, pendingGrant, order: (subOrder && subOrder.ids) || null,
-                         pinned: pinnedSub && subs.some(x => x.id === pinnedSub) ? pinnedSub : null, mailScan, mailIgnored, mailPrefs, grantResult,
+                         pinned: pinIds, mailScan, mailIgnored, mailPrefs, grantResult,
             history: histOn && history ? { scannedAt: history.scannedAt, hits: history.hits } : null, historyPermission: histOn,
             auth: publicAuth(authNow), subLimit: AuthLib.subLimit(authNow), guestLimit: AuthLib.GUEST_SUB_LIMIT,
             googleLogin: !!AuthLib.GOOGLE_CLIENT_ID,
@@ -1906,9 +1908,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           break;
         }
         case "SET_PIN": {
-          // 置顶：只能有一个，存本机（id 为 null = 取消置顶）
-          const id = typeof msg.id === "string" ? msg.id : null;
-          if (id) await chrome.storage.local.set({ pinnedSub: id }); else await chrome.storage.local.remove("pinnedSub");
+          // 置顶：最多 3 个，存本机（ids 为置顶的订阅，按置顶先后）
+          const ids = Array.isArray(msg.ids) ? msg.ids.filter(x => typeof x === "string").slice(0, 3) : [];
+          await chrome.storage.local.set({ pinnedSubs: ids });
+          await chrome.storage.local.remove("pinnedSub");
           sendResponse({ ok: true });
           break;
         }

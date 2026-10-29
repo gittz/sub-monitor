@@ -134,18 +134,22 @@ setTimeout(async () => {
     $("subList").querySelector('[data-chk="2"]').dispatchEvent(new w.MouseEvent("click", { bubbles: true }));
     await new Promise(r => setTimeout(r, 30));
     t("普通点「检查」照常检查", sent.some(m => m.type === "RUN_CHECK"));
-    // 置顶：点图钉 → 列表上方出现大卡片；再点别的订阅的图钉 → 换成那个（只能一个）；卡片上取消置顶
+    // 置顶：点名称旁的 ☆ → 上方出现完整信息卡（不用点开）；最多 3 个；卡片上 × 取消
     sent.length = 0;
     $("subList").querySelector('[data-pin="2"]').click();
     await new Promise(r => setTimeout(r, 20));
-    t("置顶：发 SET_PIN，列表上方出现卡片", sent.some(m => m.type === "SET_PIN" && m.id === "2") && !$("pinCard").hidden && /百度网盘/.test($("pinCard").textContent) && /剩余空间/.test($("pinCard").textContent) && /98%/.test($("pinCard").textContent));
-    t("置顶：图钉按钮变成已置顶状态", $("subList").querySelector('[data-pin="2"]').classList.contains("on"));
-    $("subList").querySelector('[data-pin="1"]').click();
-    await new Promise(r => setTimeout(r, 20));
-    t("置顶：只能一个，换成新的那个", /Notion/.test($("pinCard").textContent) && !/百度网盘/.test($("pinCard").textContent) && !$("subList").querySelector('[data-pin="2"]').classList.contains("on"));
-    $("pinCard").querySelector("[data-unpin]").click();
-    await new Promise(r => setTimeout(r, 20));
-    t("置顶：卡片上取消置顶", $("pinCard").hidden && sent.some(m => m.type === "SET_PIN" && m.id === null));
+    const card2 = $("pinCard").querySelector(".pn-card");
+    t("置顶：发 SET_PIN，上方出现一张信息卡，细节直接显示", sent.some(m => m.type === "SET_PIN" && JSON.stringify(m.ids) === '["2"]') && !$("pinCard").hidden && $("pinCard").querySelectorAll(".pn-card").length === 1 && /剩余空间/.test(card2.textContent) && /98/.test(card2.textContent) && /120 GB \/ 5 TB/.test(card2.textContent));
+    t("置顶：没有占位的「添加置顶」按钮", !$("pinCard").querySelector(".pn-empty"));
+    t("置顶：列表里的星标变成实心", $("subList").querySelector('[data-pin="2"]').classList.contains("on"));
+    $("subList").querySelector('[data-pin="1"]').click(); await new Promise(r => setTimeout(r, 20));
+    $("subList").querySelector('[data-pin="3"]').click(); await new Promise(r => setTimeout(r, 20));
+    t("置顶：可以置顶 3 个", $("pinCard").querySelectorAll(".pn-card").length === 3);
+    $("pinCard").querySelector('.pn-card [data-pin="2"]').click(); await new Promise(r => setTimeout(r, 20));
+    t("置顶：卡片上 × 取消置顶", $("pinCard").querySelectorAll(".pn-card").length === 2 && sent.some(m => m.type === "SET_PIN" && JSON.stringify(m.ids) === '["1","3"]'));
+    $("pinCard").querySelector('.pn-card [data-pin="1"]').click(); await new Promise(r => setTimeout(r, 20));
+    $("pinCard").querySelector('.pn-card [data-pin="3"]').click(); await new Promise(r => setTimeout(r, 20));
+    t("置顶：全部取消后卡片区消失", $("pinCard").hidden);
   }
   {
     const cap = w.subCaption;
