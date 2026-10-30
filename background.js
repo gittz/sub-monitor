@@ -725,7 +725,20 @@ async function updateFromActivity(sub) {
   return applyActivityGated(sub, r);
 }
 // 官方记录里没有任何使用：有过真实使用时间就沿用，否则记成「90 天+未使用」（和浏览器 90 天无访问同一种表示）
+// 官方记录里每条的时间（ID 后面的 @分钟）→ 近 7 / 30 天里用了几天。
+// 列表只取了最近 N 条：如果 N 条都在 30 天内，30 天的天数可能更多，标 partial
+function useStatsFromIds(ids, now) {
+  const ts = (ids || []).map(x => { const m = String(x).match(/@(\d+)$/); return m ? Number(m[1]) * 60000 : 0; }).filter(t => t > 0 && t <= now + DAY);
+  if (!ts.length) return null;
+  const day = (t) => { const d = new Date(t); return d.getFullYear() + "-" + d.getMonth() + "-" + d.getDate(); };
+  const inN = (n) => ts.filter(t => now - t <= n * DAY);
+  const t7 = inN(7), t30 = inN(30);
+  const oldest = Math.min.apply(null, ts);
+  return { d7: new Set(t7.map(day)).size, d30: new Set(t30.map(day)).size, n7: t7.length, n30: t30.length,
+           partial: ts.length >= 20 && now - oldest < 30 * DAY, at: now };
+}
 function markNoUse(sub, now) {
+  sub.useStats = { d7: 0, d30: 0, n7: 0, n30: 0, partial: false, at: now };
   sub.timeOk = true;
   sub.watchTitle = null;
   sub.sig = "";
@@ -788,6 +801,7 @@ async function applyActivityResult(sub, r) {
     if (ttl) sub.watchTitle = { title: String(ttl).slice(0, 80), at: watched, exact: r.lastTs > 0 };
     sub.watchAt = now;          // 什么时候读的观看记录（多台设备同步时以读得晚的为准）
     sub.timeOk = true;          // 这次读到了观看时间（A：接口给的具体时间 / B：页面上的日期）
+    sub.useStats = useStatsFromIds(r.ids, now);   // 读不出每条时间的（YouTube 按天分组）为 null
     sub.lastUsed = watched;
     sub.lastUsedFloor = false;
     sub.sig = sig;
@@ -1581,7 +1595,7 @@ function notifySignalLost(sub, reason, brokenDays) {
 }
 
 // 检查时读取活动记录 / 大模型数据会写回订阅的这些字段
-const REFRESH_FIELDS = ["apiInfo", "watchTitle", "loginState", "timeOk", "lastChecked", "signal", "signalNotified", "sig", "lastUsed", "lastUsedFloor", "lastWatched", "watchAt", "notified", "llm",
+const REFRESH_FIELDS = ["apiInfo", "useStats", "watchTitle", "loginState", "timeOk", "lastChecked", "signal", "signalNotified", "sig", "lastUsed", "lastUsedFloor", "lastWatched", "watchAt", "notified", "llm",
                         "account", "price", "currency", "priceSource", "priceEstimated"];
 const CHECK_CONCURRENCY = 4;          // 同时最多读几个（每个读取可能要在后台开一个标签页）
 const ACCOUNT_FRESH_MS = 3 * DAY;     // 全部检查时，多久内读过的账户页不再重新打开

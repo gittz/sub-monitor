@@ -138,7 +138,22 @@
       if (src.lastWatched) { out.lastUsed = src.lastWatched; out.lastUsedFloor = false; }
     }
     if (remote.account && ts(remote.account) > ts(local.account)) out.account = Object.assign({}, local.account, remote.account);
-    if (remote.llm && ts(remote.llm) > ts(local.llm)) out.llm = Object.assign({}, local.llm, remote.llm);
+    if (remote.llm && ts(remote.llm) > ts(local.llm)) {
+      out.llm = Object.assign({}, local.llm, remote.llm);
+      // 额度：别的设备（旧版本）同步来的重置时间可能是 ISO 字符串，或者干脆没有；
+      // 统一成毫秒数，云端没给的就保留本机读到的（同一个账号的重置时间不会变）
+      const lu = (local.llm && local.llm.usage) || {}, ru = remote.llm.usage;
+      if (ru && typeof ru === "object") {
+        const u = Object.assign({}, ru);
+        ["fiveHourReset", "weekReset", "monthReset"].forEach(k => {
+          let v = u[k];
+          if (typeof v === "string") { const t = Date.parse(v); v = isNaN(t) ? null : t; }
+          if (!v && lu[k]) v = typeof lu[k] === "string" ? (Date.parse(lu[k]) || null) : lu[k];
+          u[k] = v || null;
+        });
+        out.llm.usage = u;
+      }
+    }
     // 访问时间点：两台设备的访问合在一起
     if (local.visitLog || remote.visitLog) out.visitLog = unionVisits(local.visitLog, remote.visitLog);
     delete out.visits;

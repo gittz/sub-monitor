@@ -199,6 +199,19 @@ console.log("== 官方记录为空 → 按闲置算 ==");
   check("余额照样存下来（和登录判断无关）", sub.apiInfo && sub.apiInfo.balance === 18.71);
 }
 
+{
+  const c7 = loadBackground("https://x.com/", fakeDocWith([]));
+  const now = Date.now(), mn = (t) => Math.floor(t / 60000);
+  const u = c7.useStatsFromIds(["a@" + mn(now - 3600e3), "b@" + mn(now - 3 * 86400e3), "c@" + mn(now - 3 * 86400e3 - 600e3), "d@" + mn(now - 20 * 86400e3), "e@" + mn(now - 40 * 86400e3)], now);
+  check("官方记录 → 近 7 天用了 2 天（3 条）、近 30 天 3 天（4 条）", u.d7 === 2 && u.n7 === 3 && u.d30 === 3 && u.n30 === 4 && !u.partial, JSON.stringify(u));
+  check("没有时间的条目（YouTube 按天分组）→ null", c7.useStatsFromIds(["x", "y"], now) === null);
+  const many = Array.from({ length: 20 }, (_, i) => "k" + i + "@" + mn(now - i * 3600e3));
+  check("取到的 20 条都在 30 天内 → 标 partial（实际可能更多）", c7.useStatsFromIds(many, now).partial === true);
+  const s8 = { id: "q", mode: "activity", provider: "grok" };
+  await c7.applyActivityResult(s8, { ids: ["a@" + mn(now - 3600e3)], lastTs: now - 3600e3 });
+  check("读取成功后存下 useStats", s8.useStats && s8.useStats.d7 === 1);
+}
+
 console.log(`\n结果：${pass} 通过 / ${fail} 失败`);
 process.exit(fail ? 1 : 0);
 })();

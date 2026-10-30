@@ -143,12 +143,25 @@ async function runGrantWindow() {
 }
 
 // ---------- 渲染订阅列表 ----------
+// 订阅的网站地址：收录服务用目录里的主域名，Claude / ChatGPT 用官网，手动添加的用填的网址
+function siteUrlOf(s) {
+  const p = s.catalogId && SubCatalog.BY_ID[s.catalogId];
+  let host = (p && p.domains && p.domains[0]) || (s.provider === "claude" ? "claude.ai" : s.provider === "chatgpt" ? "chatgpt.com" : "") || String(s.urlPattern || "");
+  host = host.replace(/^https?:\/\//i, "").replace(/^\*\./, "").trim();
+  if (!host || !/^[\w.-]+\.[a-z]{2,}(\/.*)?$/i.test(host)) return "";
+  return "https://" + host;
+}
+function siteLink(s, cls) {
+  const u = siteUrlOf(s);
+  return u ? `<button type="button" class="${cls || "sv-site"}" data-site="${esc(u)}" title="打开 ${esc(u.replace(/^https:\/\//, ""))}">${SV_ICON.ext}</button>` : "";
+}
 // 列表里名称旁的置顶星标：已置顶一直显示（实心），没置顶的鼠标移上去才出现
 function pinStar(s) {
   const on = pinnedIds().includes(s.id);
   return `<button type="button" class="sv-star${on ? " on" : ""}" data-pin="${esc(s.id)}" title="${on ? "取消置顶" : "置顶到上方（最多 3 个）"}" aria-pressed="${on}">${on ? SV_ICON.starOn : SV_ICON.star}</button>`;
 }
 const SV_ICON = {
+  ext: '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>',
   star: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/></svg>',
   starOn: '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/></svg>',
   pin: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>',
@@ -260,11 +273,24 @@ async function togglePin(id) {
   renderSubs();
   await send({ type: "SET_PIN", ids: next });
 }
+// 使用频次：收录服务用官方记录（近 7 / 30 天用了几天），拿不到就不列；按浏览器访问的列访问次数
+function pushUseRows(s, rows, now, quiet) {
+  if (isOfficialUsage(s, !!s.llm)) {
+    const u = usageStats(s);
+    if (u) rows.push(["近 7 / 30 天使用", `${u.d7} / ${u.d30}${u.partial ? "+" : ""} 天`]);
+    return;
+  }
+  if (quiet) return;
+  const vs = visitStats(s.visitLog, now);
+  rows.push(["最近访问", vs.last ? fmtShort(vs.last) : "无记录"]);
+  rows.push(["近 7 / 30 天访问", `${vs.d7} / ${vs.d30} 次`]);
+}
 // 卡片内容：主指标（剩余额度 / 剩余空间 / 最近使用）+ 详情里的几行
 function pinCardData(s, now) {
   const md = (t) => new Date(t).toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" });
   const mdhm = (t) => `${md(t)} ${new Date(t).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false })}`;
-  const when = (t) => (t && t > now ? mdhm(t) : "--");
+  // 没有重置时间：额度一点没用时窗口还没开始计时（Claude 这时不给重置时间），其它情况显示 --
+  const when = (x, used) => { const t = toMs(x); return t && t > now ? mdhm(t) : used === 0 ? "未开始计时" : "--"; };
   const pctLeft = (v) => Math.max(0, Math.min(100, 100 - Math.round(v)));
   const a = s.account || {};
   const L = s.llm;
@@ -279,29 +305,29 @@ function pinCardData(s, now) {
     main = { title: `${cx}${label}剩余额度`, short: `${cx}${label}剩余`, pct: pctLeft(U[k]), used: Math.round(U[k]), reset: U[rk] };
     if (U.fiveHour != null && k !== "fiveHour") rows.push([`${cx}5 小时剩余额度`, `${pctLeft(U.fiveHour)}%`]);
     if (U.month != null && k !== "month") rows.push([`${cx}月度剩余额度`, `${pctLeft(U.month)}%`]);
-    if (U.weekReset || U.week != null) rows.push(["周额度重置", when(U.weekReset)]);
-    if (U.fiveHour != null) rows.push(["5 小时额度重置", when(U.fiveHourReset)]);
-    if (U.month != null) rows.push(["月额度重置", when(U.monthReset)]);
+    if (U.weekReset || U.week != null) rows.push(["周额度重置", when(U.weekReset, U.week)]);
+    if (U.fiveHour != null) rows.push(["5 小时额度重置", when(U.fiveHourReset, U.fiveHour)]);
+    if (U.month != null) rows.push(["月额度重置", when(U.monthReset, U.month)]);
   } else if ((a.quota && a.quota.pct != null) || (s.apiInfo && s.apiInfo.quota && s.apiInfo.quota.pct != null)) {
     const q = (s.apiInfo && s.apiInfo.quota && s.apiInfo.quota.pct != null) ? s.apiInfo.quota : a.quota;
     main = { title: q.label.replace("额度", "剩余额度"), short: q.label.replace("额度", "剩余"), pct: pctLeft(q.pct), used: Math.round(q.pct), reset: q.resetAt };
-    rows.push([q.label.replace("本月", "月") + "重置", when(q.resetAt)]);
+    rows.push([q.label.replace("本月", "月") + "重置", when(q.resetAt, q.pct)]);
   } else if (a.storage && a.storage.pct != null) {
-    main = { title: "剩余空间", short: "剩余空间", pct: pctLeft(a.storage.pct), used: Math.round(a.storage.pct), usedText: `已使用 ${Math.round(a.storage.pct)}%（${a.storage.label}）` };
+    main = { title: "剩余空间", short: "剩余空间", pct: pctLeft(a.storage.pct), used: Math.round(a.storage.pct), };   // 具体容量在右边「空间」一行，圆环下面只写百分比
     rows.push(["空间", a.storage.label]);
   } else {
     // 没有额度的服务：主指标是最近使用，右边列出判断依据和访问情况
     main = { title: "最近使用", short: "最近使用", text: s.lastUsedFloor ? "90天+" : s.lastUsed ? fmtShort(s.lastUsed) : "—", sub: usageBasis(s, !!L).text };
-    const vs = visitStats(s.visitLog, now);
-    const st = computeStatus(s, now);
-    rows.push(["判断依据", usageBasis(s, !!L).text]);
     if (s.watchTitle && s.watchTitle.title && s.lastWatched && s.watchTitle.at === s.lastWatched) rows.push(["最近看", s.watchTitle.title]);
-    rows.push(["最近访问", vs.last ? fmtShort(vs.last) : "无记录"]);
-    rows.push(["近 7 / 30 天访问", `${vs.d7} / ${vs.d30} 次`]);
-    rows.push(["闲置提醒", `${s.idleDays || 30} 天没用${st.state === "idle" ? "（已到）" : ""}`]);
+    pushUseRows(s, rows, now);
   }
-  if (s.apiInfo && s.apiInfo.balance != null) rows.push(["API 余额", `${s.apiInfo.currency === "CNY" ? "¥" : (s.apiInfo.currency || "") + " "}${Number(s.apiInfo.balance).toFixed(2)}`]);
-  if (main.pct != null) rows.push(["最近使用", s.lastUsedFloor ? "90 天+" : s.lastUsed ? fmtShort(s.lastUsed) : "—"]);
+  if (s.apiInfo && s.apiInfo.balance != null) {
+    const cur = s.apiInfo.currency === "CNY" ? "¥" : (s.apiInfo.currency || "") + " ";
+    rows.push(["API 余额", `${cur}${Number(s.apiInfo.balance).toFixed(2)}`]);
+    if (s.apiInfo.totalCost != null) rows.push(["累计消费", `${cur}${Number(s.apiInfo.totalCost).toFixed(2)}`]);
+    if (s.apiInfo.lastApiDay) rows.push(["最近调用", md(s.apiInfo.lastApiDay)]);
+  }
+  if (main.pct != null) { rows.push(["最近使用", s.lastUsedFloor ? "90 天+" : s.lastUsed ? fmtShort(s.lastUsed) : "—"]); pushUseRows(s, rows, now, true); }
   if (s.price) rows.push(["费用", `${s.currency || "$"}${Number(s.price).toFixed(2)} / 月`]);
   const renew = (L && L.renewAt) || a.renewAt;
   if (renew) rows.push(["下次续费", md(renew)]);
@@ -323,13 +349,18 @@ function renderPinCard(now) {
     const d = pinCardData(s, now), st = computeStatus(s, now), m = d.main;
     const tone = m.pct == null ? (st.state === "idle" ? "warn" : "none") : m.pct < 20 ? "bad" : m.pct < 50 ? "warn" : "good";
     const center = m.pct != null ? `${m.pct}<small>%</small>` : `<span class="txt">${esc(m.text)}</span>`;
-    const upd = s.lastChecked ? `更新 ${new Date(s.lastChecked).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false })}` : "";
-    const flag = st.state === "idle" ? `<span class="pn-flag warn">${esc(st.days)} 天未使用</span>`
-      : st.state === "signal_lost" ? `<span class="pn-flag warn">暂时读不到</span>` : upd ? `<span class="pn-flag">${esc(upd)}</span>` : "";
+    // 每张卡片同一套头部：名称 · 套餐 · 使用状态（和列表里的状态标签一样），右边是更新时间 + 检查 + 取消置顶
+    const hm = (t) => new Date(t).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
+    const lc = s.lastChecked;
+    // 按日历日算：今天只写时刻，昨天写「昨天」，更早写日期
+    const dayDiff = lc ? Math.round((new Date(now).setHours(0, 0, 0, 0) - new Date(lc).setHours(0, 0, 0, 0)) / 86400000) : 0;
+    const upd = !lc ? "还没检查" : `更新 ${dayDiff <= 0 ? "" : dayDiff === 1 ? "昨天 " : new Date(lc).toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" }) + " "}${hm(lc)}`;
+    const flag = `<span class="sv-status pn-st ${st.state}">${esc(SV_STATUS[st.state] || "")}</span><span class="pn-flag">${esc(upd)}</span>`;
     const sub = m.pct != null ? (m.usedText || `已使用 ${m.used}%`) : (m.sub || "");
     const rows = d.rows.map(([k, v]) => `<div><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join("");
     return `<div class="pn-card">
-      <div class="pn-head">${avatarHtml(s.catalogId || s.provider || s.id)}<b>${esc(s.name)}</b>${d.plan ? `<span class="pn-plan">${esc(d.plan)}</span>` : ""}${flag}
+      <div class="pn-head">${avatarHtml(s.catalogId || s.provider || s.id)}<b>${esc(s.name)}</b>${siteLink(s, "pn-site")}${d.plan ? `<span class="pn-plan">${esc(d.plan)}</span>` : ""}${flag}
+        <button type="button" class="pn-chk${checking.has(id) ? " spinning" : ""}" data-pin-chk="${esc(id)}" title="${checking.has(id) ? "检查中…" : "检查"}" ${checking.has(id) ? "disabled" : ""}>${SV_ICON.check}</button>
         <button type="button" class="pn-x" data-pin="${esc(id)}" title="取消置顶">×</button></div>
       <div class="pn-body">
         <div class="pn-main">${ringHtml(m.pct, center, tone)}<div class="pn-label">${esc(m.short || m.title)}</div><div class="pn-sub">${esc(sub)}</div></div>
@@ -340,6 +371,10 @@ function renderPinCard(now) {
   box.hidden = false;
 }
 $("pinCard").addEventListener("click", async (e) => {
+  const st = e.target.closest && e.target.closest("[data-site]");
+  if (st) { send({ type: "OPEN_TAB", url: st.dataset.site }); return; }
+  const c = e.target.closest && e.target.closest("[data-pin-chk]");
+  if (c) { if (!checking.has(c.dataset.pinChk)) await checkSubs([c.dataset.pinChk]); return; }
   const b = e.target.closest && e.target.closest("[data-pin]");
   if (b) await togglePin(b.dataset.pin);
 });
@@ -416,15 +451,13 @@ function renderSubs() {
     const busy = checking.has(s.id), open = openRows.has(s.id);
     return `<div class="sv-row st-${st.state}${open ? " open" : ""}" data-id="${esc(s.id)}">
       <div class="sv-main" data-toggle="${esc(s.id)}" title="点开看详情">
-        <div class="sv-prod">${avatarHtml(s.catalogId || s.provider || s.id)}<div><b>${esc(s.name)}${pinStar(s)}</b><small>${subCaptionHtml(s)}${s.price ? `<span class="sv-fee-in"> · ${esc(s.currency || "$")}${Number(s.price).toFixed(2)}/月</span>` : ""}</small>${capBarHtml(s)}</div></div>
+        <div class="sv-prod">${avatarHtml(s.catalogId || s.provider || s.id)}<div><b>${esc(s.name)}${pinStar(s)}${siteLink(s)}</b><small>${subCaptionHtml(s)}${s.price ? `<span class="sv-fee-in"> · ${esc(s.currency || "$")}${Number(s.price).toFixed(2)}/月</span>` : ""}</small>${capBarHtml(s)}</div></div>
         <span class="sv-fee">${fee}</span>
         <span class="sv-used${st.state === "idle" ? " warm" : ""}">${esc(used)}</span>
         <span class="sv-status ${st.state}">${esc(SV_STATUS[st.state])}</span>
       </div>
       <div class="sv-detail">
-        <div class="sv-metrics">
-          ${usageCells(s, vs, isChat)}
-        </div>
+        ${usageCells(s, vs, isChat)}
         ${watchTitleHtml(s)}
         ${s.llm && st.state !== "signal_lost" ? llmHtml(s) : ""}
         ${s.catalogId && SubCatalog.BY_ID[s.catalogId] && !SubCatalog.BY_ID[s.catalogId].special ? acctHtml(s, st) : ""}
@@ -432,6 +465,7 @@ function renderSubs() {
         <div class="sv-foot">
           <span class="sv-muted">${known ? "最近检查 " + esc((s.lastChecked || (s.account && s.account.checkedAt)) ? fmtCheck(s.lastChecked || s.account.checkedAt) : "还没检查") : "只统计浏览器访问"}</span>
           <button class="sv-icon${busy ? " spinning" : ""}" data-chk="${esc(s.id)}" title="${busy ? "检查中…" : "检查"}" ${busy ? "disabled" : ""}>${SV_ICON.check}</button>
+          ${siteUrlOf(s) ? `<button class="sv-icon" data-site="${esc(siteUrlOf(s))}" title="打开网站">${SV_ICON.ext}</button>` : ""}
           <button class="sv-icon" data-edit="${esc(s.id)}" title="编辑">${SV_ICON.edit}</button>
           <button class="sv-icon danger" data-del="${esc(s.id)}" title="删除">${SV_ICON.del}</button>
         </div>
@@ -568,6 +602,8 @@ function providerKind(s) {
 // 对话 / 使用记录类（Gemini、Cursor 等）：没有片名，也不显示「观看记录」链接
 function isChatProvider(s) { const k = providerKind(s); return k === "chat" || k === "usage"; }
 function usageBasis(s, isLlm) {
+  // 对话类服务（Gemini、DeepSeek、Grok 等）不管调用方传没传，都按对话记录说；只有视频类才叫观看记录
+  isLlm = isLlm || isChatProvider(s);
   if (providerKind(s) === "usage") {
     if (SubLib.hasWatchTime(s)) return { text: "按使用记录", tip: "使用记录里最近一次 AI 请求的时间（在编辑器里用也算），只打开网页不算" };
     return { text: "按浏览器访问", tip: "使用记录暂时读不到，先按在本浏览器打开网站的时间判断" };
@@ -583,12 +619,41 @@ function usageBasis(s, isLlm) {
   if (s.mode === "browser") return { text: "按浏览器访问", tip: "在本浏览器打开这个网站的时间" };
   return { text: "不参与判断", tip: "" };
 }
+// 用官方记录判断的订阅（不是按浏览器访问）
+function isOfficialUsage(s, isLlm) {
+  const t = usageBasis(s, isLlm).text;
+  return t !== "按浏览器访问" && t !== "不参与判断";
+}
+// 近 7 / 30 天用了几天：大模型来自对话列表统计，其它收录服务来自官方记录里每条的时间；拿不到返回 null
+function usageStats(s) {
+  const L = s.llm && s.llm.stats;
+  if (L && (L.activeDays30 != null || L.activeDays7 != null)) {
+    return { d7: L.activeDays7 || 0, d30: L.activeDays30 || 0, n7: L.convs7, n30: L.convs30, partial: !!L.capped, unit: "个对话" };
+  }
+  const u = s.useStats;
+  if (u && u.d30 != null && SubLib.hasWatchTime(s)) return Object.assign({ unit: providerKind(s) === "usage" ? "次" : isChatProvider(s) ? "个对话" : "条" }, u);
+  return null;
+}
 function usageCells(s, vs, isLlm) {
   const b = usageBasis(s, isLlm);
   const used = s.lastUsedFloor ? "90 天+" : s.lastUsed ? fmtShort(s.lastUsed) : "—";
-  return `<div title="${esc(b.tip)}"><span>最近使用</span><b>${esc(used)}</b><small>${esc(b.text)}</small></div>
-    <div title="在本浏览器里打开这个网站的最近一次时间（打开不一定等于在用）"><span>最近访问</span><b>${esc(vs.last ? fmtShort(vs.last) : "无记录")}</b><small>打开网站</small></div>
-    <div><span>近 7 天访问</span><b>${vs.d7} 次</b></div><div><span>近 30 天访问</span><b>${vs.d30} 次</b></div>`;
+  const first = `<div title="${esc(b.tip)}"><span>最近使用</span><b>${esc(used)}</b><small>${esc(b.text)}</small></div>`;
+  // 按浏览器访问的：最近使用就是最近访问，不重复显示，只留访问的三格（最近访问也就是判断依据）
+  if (!isOfficialUsage(s, isLlm)) {
+    if (b.text === "不参与判断") return `<div class="sv-metrics c1">${first}</div>`;
+    // 读浏览历史补上的访问（装插件之前的）不在访问日志里，取两者里更晚的
+    const last = s.lastUsedFloor ? 0 : Math.max(vs.last || 0, s.lastUsed || 0);
+    const lastTxt = last ? fmtShort(last) : s.lastUsedFloor ? "90 天+" : "无记录";
+    return `<div class="sv-metrics c3"><div title="${esc(b.tip)}"><span>最近访问</span><b>${esc(lastTxt)}</b><small>${esc(b.text)}</small></div>
+    <div><span>近 7 天访问</span><b>${vs.d7} 次</b></div><div><span>近 30 天访问</span><b>${vs.d30} 次</b></div></div>`;
+  }
+  // 收录服务用官方记录：有每天的使用记录就显示近 7 / 30 天用了几天，没有就只显示最近使用
+  const u = usageStats(s);
+  if (!u) return `<div class="sv-metrics c1">${first}</div>`;
+  const cnt = (n) => (n != null && u.unit ? `${n}${u.partial ? "+" : ""} ${u.unit}` : "");
+  return `<div class="sv-metrics c3">${first}
+    <div title="近 7 天里有使用记录的天数"><span>近 7 天使用</span><b>${u.d7} 天</b><small>${esc(cnt(u.n7))}</small></div>
+    <div title="近 30 天里有使用记录的天数${u.partial ? "（只读了最近的一部分记录，实际可能更多）" : ""}"><span>近 30 天使用</span><b>${u.d30}${u.partial ? "+" : ""} 天</b><small>${esc(cnt(u.n30))}</small></div></div>`;
 }
 // 观看记录里最近看的片名（只有能读到片名的服务才有，比如腾讯视频）
 // 观看记录类订阅（视频）：「最近看的」一行 + 右侧跳到该服务观看记录页的链接。
@@ -686,8 +751,17 @@ function meter(v) {
   return `<span class="meter"><i style="width:${w}%"></i></span>${v}%`;
 }
 // 额度重置时间：24 小时内显示「14:20 重置」，再远显示「11/05 重置」（long：「11/05 00:00 重置」）；已过期的不显示
+// 重置时间可能是毫秒数，也可能是旧版本 / 别的设备同步来的 ISO 字符串（2.38 以前存的是字符串）
+function toMs(x) {
+  if (x == null || x === "") return 0;
+  if (typeof x === "number") return x < 1e11 ? x * 1000 : x;
+  const n = Number(x);
+  if (!isNaN(n) && n > 0) return n < 1e11 ? n * 1000 : n;
+  const t = Date.parse(x);
+  return isNaN(t) ? 0 : t;
+}
 function resetText(ts, long) {
-  const t = Number(ts);
+  const t = toMs(ts);
   if (!t || t <= Date.now()) return "";
   const d = new Date(t);
   const hm = d.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
@@ -1409,6 +1483,7 @@ $("subList").addEventListener("click", async (e) => {
     return;
   }
   if (ds.pin) { await togglePin(ds.pin); return; }
+  if (ds.site) { send({ type: "OPEN_TAB", url: ds.site }); return; }
   const edit = ds.edit, del = ds.del, fix = ds.fix;
   let chk = ds.chk, cdiagAlt = null;
   // 开发排查：按住 Alt 点「检查」= 诊断（显示读取明细），只对收录服务有效
