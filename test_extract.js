@@ -107,9 +107,9 @@ ctx = loadBackground("https://x.com/", fakeDocWith([]));
 const eval_ = (expr) => vm.runInContext(expr, ctx);
 const cat = eval_("CATALOG");
 check("YouTube 标为已实测", cat.youtube.verified === true);
-check("只保留适配好的读取方式", Object.keys(cat).sort().join() === "bilibili,chatgpt,claude,copilot,cursor,gemini,perplexity,tencent,youtube");
+check("只保留适配好的读取方式", Object.keys(cat).sort().join() === "bilibili,chatgpt,claude,copilot,cursor,deepseek,gemini,grok,midjourney,perplexity,poe,tencent,youtube,zhipu");
 // 例外名单：接口和空结果已实测、但有记录时的字段还没见过的（Cursor：账号暂无使用记录）
-const PENDING_VERIFY = ["cursor"];
+const PENDING_VERIFY = ["cursor", "midjourney", "zhipu"];
 check("每个读取方式都实测过或有专用读法", Object.keys(cat).every(k => cat[k].verified === true || cat[k].strategy === "llm" || (PENDING_VERIFY.includes(k) && cat[k].verified === false)));
 check("已知无活动页的服务被登记（Spotify 等）",
   eval_("NO_ACTIVITY_PAGE").some(x => x.match === "spotify.com"));
@@ -151,6 +151,9 @@ console.log("== 官方记录为空 → 按闲置算 ==");
   const s2 = { id: "b", mode: "activity", provider: "gemini", idleDays: 30, lastWatched: now - 5 * 86400000, lastUsed: now - 5 * 86400000 };
   await c3.applyActivityResult(s2, { ids: [], empty: true });
   check("空记录但以前读到过使用时间：沿用那个时间，不改成 90 天+", s2.lastUsed === now - 5 * 86400000 && !s2.lastUsedFloor);
+  const s5 = { id: "g", mode: "activity", provider: "cursor", idleDays: 30, lastUsed: now - 3600000 };   // 之前按浏览器访问记的「今天」
+  await c3.applyActivityResult(s5, { ids: [], empty: true });
+  check("空记录：浏览器访问留下的「今天」不算，改成 90 天+未使用", s5.lastUsedFloor === true && c3.computeStatus(s5, now).state === "idle");
   const s3 = { id: "c", mode: "activity", provider: "cursor" };
   await c3.applyActivityResult(s3, { ids: [], loggedOut: null });
   check("没认出返回（不是 empty）：仍是读取失败，不算闲置", s3.signal.ok === false && s3.signal.reason === "read_failed" && !s3.lastUsed);
@@ -167,6 +170,46 @@ console.log("== 官方记录为空 → 按闲置算 ==");
   const g2 = { id: "f", mode: "activity", provider: "cursor", account: { status: "ok" }, idleDays: 30 };
   await c4.applyActivityGated(g2, { ids: [], empty: true });
   check("账户页确认已登录：空记录 → 闲置", g2.signal.ok === true && g2.lastUsedFloor === true);
+}
+
+{
+  const c5 = loadBackground("https://x.com/", fakeDocWith([]));
+  const f1 = { id: "h", mode: "activity", provider: "copilot" };
+  await c5.applyActivityResult(f1, { ids: [], debug: ["copilot.com 200 返回的不是 JSON（text/html）"], pageUrl: "https://login.live.com/oauth?x=1" });
+  check("读取失败时记下细节（状态码 / 最终网址，不带参数）", f1.signal.ok === false && /不是 JSON/.test(f1.signal.detail) && /login\.live\.com\/oauth/.test(f1.signal.detail) && !/x=1/.test(f1.signal.detail), f1.signal.detail);
+  const cfgCat = c5.getProviderConfig({ provider: "copilot", catalogId: "copilot", activityUrl: "https://copilot.microsoft.com/old" });
+  check("常见服务不用订阅里过时的地址", cfgCat.activityUrl === "https://copilot.com/chat/all");
+}
+
+{
+  // 附加来源合并（DeepSeek：对话 + 开放平台 API 调用）
+  const c6 = loadBackground("https://x.com/", fakeDocWith([]));
+  c6.readActivityMain = async () => ({ ids: ["chat@1"], lastTs: 1789958335770, count: 1 });
+  c6.readExtraSource = async () => ({ ids: ["api-day@29881680"], lastTs: 1792987200000, info: { balance: 18.71, currency: "CNY" } });
+  const m1 = await c6.readActivity(c6.getProviderConfig({ provider: "deepseek", catalogId: "deepseek" }));
+  check("附加来源：API 调用比对话晚 → 最近使用取 API 那天；余额带回", m1.lastTs === 1792987200000 && m1.ids.length === 2 && m1.info.balance === 18.71);
+  c6.readActivityMain = async () => ({ ids: [], empty: true });
+  const m2 = await c6.readActivity(c6.getProviderConfig({ provider: "deepseek", catalogId: "deepseek" }));
+  check("附加来源：没有对话但有 API 调用 → 不算空记录", m2.empty === false && m2.lastTs === 1792987200000);
+  c6.readActivityMain = async () => ({ ids: [], loggedOut: true });
+  const m3 = await c6.readActivity(c6.getProviderConfig({ provider: "deepseek", catalogId: "deepseek" }));
+  check("附加来源：对话页没登录时不拿 API 记录顶替", m3.loggedOut === true && !m3.ids.length && m3.info.balance === 18.71);
+  const sub = { id: "z", mode: "activity", provider: "deepseek" };
+  await c6.applyActivityResult(sub, m3);
+  check("余额照样存下来（和登录判断无关）", sub.apiInfo && sub.apiInfo.balance === 18.71);
+}
+
+{
+  const c7 = loadBackground("https://x.com/", fakeDocWith([]));
+  const now = Date.now(), mn = (t) => Math.floor(t / 60000);
+  const u = c7.useStatsFromIds(["a@" + mn(now - 3600e3), "b@" + mn(now - 3 * 86400e3), "c@" + mn(now - 3 * 86400e3 - 600e3), "d@" + mn(now - 20 * 86400e3), "e@" + mn(now - 40 * 86400e3)], now);
+  check("官方记录 → 近 7 天用了 2 天（3 条）、近 30 天 3 天（4 条）", u.d7 === 2 && u.n7 === 3 && u.d30 === 3 && u.n30 === 4 && !u.partial, JSON.stringify(u));
+  check("没有时间的条目（YouTube 按天分组）→ null", c7.useStatsFromIds(["x", "y"], now) === null);
+  const many = Array.from({ length: 20 }, (_, i) => "k" + i + "@" + mn(now - i * 3600e3));
+  check("取到的 20 条都在 30 天内 → 标 partial（实际可能更多）", c7.useStatsFromIds(many, now).partial === true);
+  const s8 = { id: "q", mode: "activity", provider: "grok" };
+  await c7.applyActivityResult(s8, { ids: ["a@" + mn(now - 3600e3)], lastTs: now - 3600e3 });
+  check("读取成功后存下 useStats", s8.useStats && s8.useStats.d7 === 1);
 }
 
 console.log(`\n结果：${pass} 通过 / ${fail} 失败`);

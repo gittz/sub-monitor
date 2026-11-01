@@ -27,8 +27,8 @@ const store = { subs: [{ id: "1", name: "Notion", urlPattern: "notion.so", mode:
   { id: "3", name: "B站大会员", catalogId: "bilibili", urlPattern: "bilibili.com", mode: "browser", lastUsed: NOW, account: { status: "logged_out" } }],
   records: [{ url: "https://www.youtube.com/", hostname: "www.youtube.com", time: NOW - DAY }], mailScan, mailIgnored: ["apple.com|apple"] };
 w.chrome = {
-  runtime: { sendMessage: (m, cb) => { sent.push(m); setTimeout(() => cb(m.type === "GET_STATE"
-      ? { ok: true, ...store, lastCheck: null, paused: false, subLimit: 5, guestLimit: 5, auth: null, googleLogin: true, providers: [{ key: "youtube", name: "YouTube", verified: true, note: "" }], noActivityPage: [] }
+  runtime: { sendMessage: (m, cb) => { sent.push(m); if (m.type === "SET_PIN") store.pinned = m.ids; setTimeout(() => cb(m.type === "GET_STATE"
+      ? { ok: true, ...store, lastCheck: null, paused: false, subLimit: 5, guestLimit: 5, auth: null, googleLogin: true, providers: [{ key: "youtube", name: "YouTube", verified: true, note: "" }, { key: "deepseek", name: "DeepSeek", verified: true, note: "", kind: "chat" }], noActivityPage: [] }
       : { ok: true }), m.type === "CATALOG_ADD" ? 60 : 0); } },
   storage: { onChanged: { addListener() {} } },
   permissions: { request: async () => true, contains: async () => w.__has !== false },
@@ -103,7 +103,7 @@ setTimeout(async () => {
   // 常见服务
   t("从浏览记录发现：最近访问过 YouTube → 添加按钮", /YouTube/.test($("discList").textContent) && !!$("discList").querySelector('[data-cat="youtube"]'));
   const cards = $("catGrid").querySelectorAll(".ad-card");
-  t("目录列出全部服务，已添加的标记为已添加", cards.length === 10 && $("catGrid").querySelectorAll(".ad-card.added").length === 2);
+  t("目录列出全部服务，已添加的标记为已添加", cards.length === 15 && $("catGrid").querySelectorAll(".ad-card.added").length === 2);
   t("分类标签：全部 + 4 类", $("catCats").querySelectorAll("span").length === 5);
   $("catCats").querySelectorAll("span")[3].click();
   t("点分类只显示该类", !/YouTube/.test($("catGrid").textContent) && /腾讯视频/.test($("catGrid").textContent));
@@ -134,25 +134,88 @@ setTimeout(async () => {
     $("subList").querySelector('[data-chk="2"]').dispatchEvent(new w.MouseEvent("click", { bubbles: true }));
     await new Promise(r => setTimeout(r, 30));
     t("普通点「检查」照常检查", sent.some(m => m.type === "RUN_CHECK"));
+    // 置顶：点名称旁的 ☆ → 上方出现完整信息卡（不用点开）；最多 3 个；卡片上 × 取消
+    sent.length = 0;
+    $("subList").querySelector('[data-pin="2"]').click();
+    await new Promise(r => setTimeout(r, 20));
+    const card2 = $("pinCard").querySelector(".pn-card");
+    t("置顶：发 SET_PIN，上方出现一张信息卡，细节直接显示", sent.some(m => m.type === "SET_PIN" && JSON.stringify(m.ids) === '["2"]') && !$("pinCard").hidden && $("pinCard").querySelectorAll(".pn-card").length === 1 && /剩余空间/.test(card2.textContent) && /98/.test(card2.textContent) && /120 GB \/ 5 TB/.test(card2.textContent));
+    t("置顶：没有占位的「添加置顶」按钮", !$("pinCard").querySelector(".pn-empty"));
+    t("置顶：头部统一有使用状态标签和更新时间", !!card2.querySelector(".pn-st.active") && /最近用过/.test(card2.querySelector(".pn-head").textContent) && /还没检查|更新/.test(card2.querySelector(".pn-flag").textContent));
+    t("置顶：列表里的星标变成实心", $("subList").querySelector('[data-pin="2"]').classList.contains("on"));
+    $("subList").querySelector('[data-pin="1"]').click(); await new Promise(r => setTimeout(r, 20));
+    $("subList").querySelector('[data-pin="3"]').click(); await new Promise(r => setTimeout(r, 20));
+    t("置顶：可以置顶 3 个", $("pinCard").querySelectorAll(".pn-card").length === 3);
+    t("网址：收录服务 / 手动网址都有打开网站的按钮", w.siteUrlOf({ catalogId: "baidu-pan" }) === "https://pan.baidu.com" && w.siteUrlOf({ urlPattern: "notion.so" }) === "https://notion.so" && w.siteUrlOf({ provider: "claude", mode: "activity" }) === "https://claude.ai" && w.siteUrlOf({ mode: "none", urlPattern: "" }) === "");
+    sent.length = 0;
+    $("subList").querySelector('[data-site="https://pan.baidu.com"]').click(); await new Promise(r => setTimeout(r, 20));
+    t("网址：列表里点了由后台打开（不算一次使用）", sent.some(m => m.type === "OPEN_TAB" && m.url === "https://pan.baidu.com"));
+    sent.length = 0;
+    $("pinCard").querySelector('[data-site="https://notion.so"]').click(); await new Promise(r => setTimeout(r, 20));
+    t("网址：置顶卡片上也能点", sent.some(m => m.type === "OPEN_TAB" && m.url === "https://notion.so"));
+    sent.length = 0;
+    $("pinCard").querySelector('[data-pin-chk="2"]').click(); await new Promise(r => setTimeout(r, 30));
+    t("置顶卡片上点「检查」：只检查这一个", sent.some(m => m.type === "RUN_CHECK" && JSON.stringify(m.ids) === '["2"]'));
+    $("pinCard").querySelector('.pn-card [data-pin="2"]').click(); await new Promise(r => setTimeout(r, 20));
+    t("置顶：卡片上 × 取消置顶", $("pinCard").querySelectorAll(".pn-card").length === 2 && sent.some(m => m.type === "SET_PIN" && JSON.stringify(m.ids) === '["1","3"]'));
+    $("pinCard").querySelector('.pn-card [data-pin="1"]').click(); await new Promise(r => setTimeout(r, 20));
+    $("pinCard").querySelector('.pn-card [data-pin="3"]').click(); await new Promise(r => setTimeout(r, 20));
+    t("置顶：全部取消后卡片区消失", $("pinCard").hidden);
   }
   {
     const cap = w.subCaption;
     t("列表小字：Claude 显示套餐和本周额度", cap({ provider: "claude", llm: { plan: { label: "Pro" }, usage: { fiveHour: 62, week: 47 } } }) === "Pro · 本周额度 47%");
     t("列表小字：ChatGPT 没有额度时显示近 7 天对话数", cap({ provider: "chatgpt", llm: { plan: { label: "Free" }, stats: { convs7: 0 } } }) === "Free · 近 7 天 0 个对话");
     t("列表小字：收录服务显示套餐和续费日", /^Premium · \d\d\/\d\d 续费$/.test(cap({ catalogId: "youtube", account: { status: "ok", plan: { label: "Premium" }, renewAt: Date.now() + 5 * DAY } })));
+    const cb = w.capBarHtml({ provider: "claude", llm: { plan: { label: "Pro" }, usage: { week: 4 } } });
+    t("列表小字：文字不变，额度另外画一条进度条", w.subCaptionHtml({ provider: "claude", llm: { plan: { label: "Pro" }, usage: { week: 4 } } }) === "Pro · 本周额度 4%" && /class="cap-bar"[^>]*><i style="width:4%">/.test(cb), cb);
+    const soon = Date.now() + 3 * 86400000;
+    const md = new Date(soon).toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" });
+    t("列表小字：额度后面跟重置时间", w.subCaption({ provider: "claude", llm: { plan: { label: "Pro" }, usage: { week: 8, weekReset: soon } } }) === `Pro · 本周额度 8% · ${md} 重置`);
+    t("列表小字：ChatGPT 的 Codex 额度没用过时仍显示对话数", w.subCaption({ provider: "chatgpt", llm: { plan: { label: "Plus" }, stats: { convs7: 11 }, usage: { source: "codex", month: 0, monthReset: soon } } }) === "Plus · 近 7 天 11 个对话");
+    t("列表小字：ChatGPT 用了 Codex 时显示 Codex 额度和重置", w.subCaption({ provider: "chatgpt", llm: { plan: { label: "Plus" }, usage: { source: "codex", week: 30, weekReset: soon } } }) === `Plus · Codex 本周额度 30% · ${md} 重置`);
+    t("列表小字：Cursor 显示本月额度和重置", w.subCaption({ catalogId: "cursor", account: { status: "ok", plan: { label: "Pro" }, quota: { pct: 63.3, resetAt: soon, label: "本月额度" } } }) === `Pro · 本月额度 63% · ${md} 重置` && /cap-bar/.test(w.capBarHtml({ catalogId: "cursor", account: { status: "ok", plan: { label: "Pro" }, quota: { pct: 63.3, resetAt: soon, label: "本月额度" } } })));
+    t("列表小字：DeepSeek 显示 API 余额", w.subCaption({ catalogId: "deepseek", account: { status: "ok", plan: { label: "免费版", paid: false } }, apiInfo: { balance: 18.71, currency: "CNY" } }) === "免费版 · API 余额 ¥18.71");
+    t("列表小字：智谱 Coding Plan 显示 5 小时额度和重置", w.subCaption({ catalogId: "zhipu", account: { status: "ok", plan: { label: "GLM Coding Pro", paid: true } }, apiInfo: { balance: 0, currency: "CNY", quota: { pct: 42, resetAt: soon, label: "5 小时额度" } } }) === `GLM Coding Pro · 5 小时额度 42% · ${md} 重置`);
+    {
+      const d1 = w.pinCardData({ provider: "chatgpt", llm: { plan: { label: "Free" }, usage: { week: 0, weekReset: soon } }, lastUsed: Date.now() }, Date.now());
+      t("置顶卡片：大模型中间是本周剩余额度，下面有周额度重置", d1.plan === "Free" && d1.main.title === "本周剩余额度" && d1.main.pct === 100 && d1.main.used === 0 && d1.rows.some(r => r[0] === "周额度重置" && /\d\d\/\d\d \d\d:\d\d/.test(r[1])), JSON.stringify(d1));
+      const d2 = w.pinCardData({ provider: "claude", llm: { plan: { label: "Pro" }, usage: { week: 8, weekReset: soon, fiveHour: 49, fiveHourReset: soon } }, price: 20, currency: "$" }, Date.now());
+      t("置顶卡片：Claude 还列出 5 小时剩余和两个重置时间、月费", d2.main.pct === 92 && d2.rows.some(r => r[0] === "5 小时剩余额度" && r[1] === "51%") && d2.rows.some(r => r[0] === "5 小时额度重置") && d2.rows.some(r => r[0] === "费用"));
+      const iso = new Date(Date.now() + 5 * 86400000).toISOString();
+      const d5 = w.pinCardData({ provider: "claude", llm: { plan: { label: "Pro" }, usage: { week: 21, weekReset: iso, fiveHour: 0, fiveHourReset: null } } }, Date.now());
+      t("置顶卡片：重置时间是 ISO 字符串（旧版本同步来的）也能显示；5 小时没用时写未开始计时", d5.rows.some(r => r[0] === "周额度重置" && /\d\d\/\d\d \d\d:\d\d/.test(r[1])) && d5.rows.some(r => r[0] === "5 小时额度重置" && r[1] === "未开始计时"), JSON.stringify(d5.rows));
+      const d6 = w.pinCardData({ catalogId: "deepseek", mode: "activity", provider: "deepseek", account: { status: "ok", plan: { label: "免费版" } }, lastUsed: Date.now() - 4 * 86400000, lastWatched: Date.now() - 4 * 86400000, timeOk: true, signal: { ok: true } }, Date.now());
+      t("置顶卡片：DeepSeek 这类对话服务写「按对话记录」，不是观看记录；不列判断依据", d6.main.sub === "按对话记录" && !d6.rows.some(r => r[0] === "判断依据"), JSON.stringify(d6));
+      const d7 = w.pinCardData({ catalogId: "deepseek", mode: "activity", provider: "deepseek", account: { status: "ok", plan: { label: "免费版" } }, apiInfo: { balance: 18.71, totalCost: 1.29, currency: "CNY", lastApiDay: Date.now() - 4 * 86400000 } }, Date.now());
+      t("置顶卡片：API 余额、累计消费、最近调用", d7.rows.some(r => r[0] === "累计消费" && r[1] === "¥1.29") && d7.rows.some(r => r[0] === "API 余额" && r[1] === "¥18.71") && d7.rows.some(r => r[0] === "最近调用"));
+      const d3 = w.pinCardData({ catalogId: "youtube", mode: "activity", provider: "youtube", account: { status: "ok", plan: { label: "Premium" } }, lastUsed: Date.now() - 3 * 86400000 }, Date.now());
+      t("置顶卡片：没有额度的服务中间显示最近使用", d3.main.title === "最近使用" && d3.main.text === "3 天前");
+      const d4 = w.pinCardData({ catalogId: "baidu-pan", account: { status: "ok", plan: { label: "SVIP" }, storage: { pct: 94, label: "4.7 TB / 5 TB" } } }, Date.now());
+      t("置顶卡片：网盘显示剩余空间，容量只在「空间」一行出现", d4.main.title === "剩余空间" && d4.main.pct === 6 && !d4.main.usedText && d4.rows.some(r => r[0] === "空间"));
+      t("置顶卡片：不列闲置提醒", !d3.rows.some(r => r[0] === "闲置提醒"));
+    }
+    t("列表小字：额度快用完时进度条变红", /cap-bar hi/.test(w.capBarHtml({ provider: "claude", llm: { plan: { label: "Max" }, usage: { week: 95 } } })));
+    t("列表小字：没有额度时不画进度条", w.capBarHtml({ provider: "chatgpt", llm: { plan: { label: "Plus" }, stats: { convs7: 11 } } }) === "");
     t("列表小字：没登录读不到时退回分类", cap({ catalogId: "youtube", account: { status: "logged_out", plan: { label: "Premium" } } }) === "影音娱乐");
   }
   {
     const vs = { last: Date.now(), d7: 27, d30: 92 };
     const W = Date.now() - 5 * DAY;
     const h1 = w.usageCells({ mode: "activity", provider: "youtube", lastUsed: W, lastWatched: W, sig: "a", signal: { ok: true } }, vs, false);
-    t("视频类：「最近使用 5 天前 · 按观看记录」和「最近访问 今天 · 打开网站」分开显示", /最近使用<\/span><b>5 天前<\/b><small>按观看记录/.test(h1) && /最近访问<\/span><b>今天<\/b><small>打开网站/.test(h1) && /近 7 天访问/.test(h1));
+    t("视频类（收录服务）：只显示最近使用，不显示浏览器访问次数", /最近使用<\/span><b>5 天前<\/b><small>按观看记录/.test(h1) && !/最近访问|近 7 天访问/.test(h1) && /sv-metrics c1/.test(h1));
+    const h1b = w.usageCells({ mode: "activity", provider: "youtube", lastUsed: W, lastWatched: W, timeOk: true, signal: { ok: true }, useStats: { d7: 2, d30: 9, n7: 3, n30: 14, partial: false } }, vs, false);
+    t("视频类：有每天的观看记录时显示近 7 / 30 天看了几天", /近 7 天使用<\/span><b>2 天/.test(h1b) && /近 30 天使用<\/span><b>9 天/.test(h1b) && /14 条/.test(h1b) && !/近 7 天访问/.test(h1b));
+    const h1c = w.usageCells({ mode: "activity", provider: "youtube", lastUsed: W, signal: { ok: false, reason: "read_failed" } }, vs, false);
+    t("读不到官方记录、改按浏览器访问时：照旧显示访问次数，不重复显示最近使用", /最近访问<\/span><b>今天/.test(h1c) && /近 7 天访问/.test(h1c) && !/最近使用/.test(h1c));
     const h2 = w.usageCells({ provider: "claude", llm: {}, lastUsed: Date.now() }, vs, true);
     t("大模型：最近使用按对话记录", /按对话记录/.test(h2));
+    const h2b = w.usageCells({ provider: "claude", llm: { stats: { activeDays7: 5, activeDays30: 18, convs7: 11, convs30: 40 } }, lastUsed: Date.now() }, vs, true);
+    t("大模型：近 7 / 30 天用了几天（对话数在小字里），不显示访问次数", /近 7 天使用<\/span><b>5 天<\/b><small>11 个对话/.test(h2b) && /18 天/.test(h2b) && !/近 30 天访问/.test(h2b));
     const h3 = w.usageCells({ mode: "browser", urlPattern: "x.com", lastUsed: Date.now() }, vs, false);
-    t("手动网址：最近使用按浏览器访问", /按浏览器访问/.test(h3));
+    t("手动网址：只显示最近访问 + 7 / 30 天访问，判断依据写在最近访问下面", /最近访问<\/span><b>今天<\/b><small>按浏览器访问/.test(h3) && !/最近使用/.test(h3) && /sv-metrics c3/.test(h3));
   }
-  t("网盘：列表里直接显示空间用量", /空间 120 GB \/ 5 TB · 2%/.test(sub2));
+  t("网盘：列表里直接显示空间用量（进度条，悬停看具体用量）", /空间 120 GB \/ 5 TB · 2%<\/small><span class="cap-bar" title="已用 120 GB \/ 5 TB"><i style="width:2%">/.test(sub2));
   t("账户信息：套餐 + 空间 + 降档建议", /超级会员 SVIP/.test(sub2) && /120 GB/.test(sub2) && /换小一档/.test(sub2));
   t("未登录：提示不代表没在用，给「打开账户页」", /不代表你没在用/.test(sub2) && /data-copen="3"/.test(sub2));
   sent.length = 0;

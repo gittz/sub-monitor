@@ -143,7 +143,28 @@ async function runGrantWindow() {
 }
 
 // ---------- 渲染订阅列表 ----------
+// 订阅的网站地址：收录服务用目录里的主域名，Claude / ChatGPT 用官网，手动添加的用填的网址
+function siteUrlOf(s) {
+  const p = s.catalogId && SubCatalog.BY_ID[s.catalogId];
+  let host = (p && p.domains && p.domains[0]) || (s.provider === "claude" ? "claude.ai" : s.provider === "chatgpt" ? "chatgpt.com" : "") || String(s.urlPattern || "");
+  host = host.replace(/^https?:\/\//i, "").replace(/^\*\./, "").trim();
+  if (!host || !/^[\w.-]+\.[a-z]{2,}(\/.*)?$/i.test(host)) return "";
+  return "https://" + host;
+}
+function siteLink(s, cls) {
+  const u = siteUrlOf(s);
+  return u ? `<button type="button" class="${cls || "sv-site"}" data-site="${esc(u)}" title="打开 ${esc(u.replace(/^https:\/\//, ""))}">${SV_ICON.ext}</button>` : "";
+}
+// 列表里名称旁的置顶星标：已置顶一直显示（实心），没置顶的鼠标移上去才出现
+function pinStar(s) {
+  const on = pinnedIds().includes(s.id);
+  return `<button type="button" class="sv-star${on ? " on" : ""}" data-pin="${esc(s.id)}" title="${on ? "取消置顶" : "置顶到上方（最多 3 个）"}" aria-pressed="${on}">${on ? SV_ICON.starOn : SV_ICON.star}</button>`;
+}
 const SV_ICON = {
+  ext: '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>',
+  star: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/></svg>',
+  starOn: '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/></svg>',
+  pin: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>',
   check: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>',
   edit: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.38 3.62a1 1 0 0 1 3 3L7.37 18.64a2 2 0 0 1-.86.5l-2.87.84a.5.5 0 0 1-.62-.62l.84-2.87a2 2 0 0 1 .5-.86z"/></svg>',
   grip: '<svg viewBox="0 0 12 12" fill="currentColor"><circle cx="4" cy="2.5" r="1.1"/><circle cx="8" cy="2.5" r="1.1"/><circle cx="4" cy="6" r="1.1"/><circle cx="8" cy="6" r="1.1"/><circle cx="4" cy="9.5" r="1.1"/><circle cx="8" cy="9.5" r="1.1"/></svg>',
@@ -166,8 +187,31 @@ function spendHtml(subs) {
   if (!keys.length) return "—";
   return keys.map(c => { const [a, b] = by[c].toFixed(2).split("."); return `${esc(c)}${a}<span class="cents">.${b}</span>`; }).join(" + ");
 }
-// 列表里名称下面那行：有读到的关键信息就直接显示（不用展开），没有就显示分类
+// 名称下面那行文字保持原样（套餐、额度、空间用量、百分比、月费一个不少）；
+// 有百分比（额度 / 空间）的，再在文字下面单独画一条细进度条——窄的侧边栏里文字被省略号截断时，进度条也还在
+function subCaptionHtml(s) { return esc(subCaption(s)); }
+function capBarHtml(s) {
+  const c = subCaptionParts(s);
+  if (c.pct == null) return "";
+  const w = Math.max(0, Math.min(100, c.pct));
+  const lv = w >= 90 ? " hi" : w >= 70 ? " mid" : "";
+  return `<span class="cap-bar${lv}" title="${esc(c.tip || "")}"><i style="width:${w}%"></i></span>`;
+}
+// 纯文字版本（测试和不能放 HTML 的地方用）
 function subCaption(s) {
+  const c = subCaptionParts(s);
+  if (c.pct == null) return c.text;
+  // 「Pro · 本周额度 47% · 11/05 重置」「空间 120 GB / 5 TB · 2%」
+  const main = c.detail ? `${c.lead ? c.lead + " · " : ""}${c.label} ${c.detail} · ${Math.round(c.pct)}%` : `${c.lead ? c.lead + " · " : ""}${c.label} ${Math.round(c.pct)}%`;
+  return main + (c.after ? " · " + c.after : "");
+}
+// 列表里名称下面那行：有读到的关键信息就直接显示（不用展开），没有就显示分类
+// 返回 { text } 或带百分比的 { lead, label, pct, tip }
+function subCaptionParts(s) {
+  const r = subCaptionRaw(s);
+  return typeof r === "string" ? { text: r } : r;
+}
+function subCaptionRaw(s) {
   const p = s.catalogId && SubCatalog.BY_ID[s.catalogId];
   const md = (t) => new Date(t).toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" });
   // 大模型：套餐 + 额度（读得到的话），否则套餐 + 近 7 天对话数
@@ -175,26 +219,170 @@ function subCaption(s) {
   if (L && L.plan) {
     const u = L.usage || {};
     // 列表里位置有限：优先显示本周额度（更能说明这个月值不值），没有再显示 5 小时额度；两项都在展开后的详情里
-    if (u.week != null) return `${L.plan.label} · 本周额度 ${Math.round(u.week)}%`;
-    if (u.fiveHour != null) return `${L.plan.label} · 5 小时额度 ${Math.round(u.fiveHour)}%`;
+    // 额度 + 什么时候重置（Claude：5 小时 / 每周；ChatGPT 读的是 Codex 额度：5 小时 / 每周 / 每月）
+    const cx = u.source === "codex" ? "Codex " : "";
+    const quota = (label, pct, reset) => ({ lead: L.plan.label, label: cx + label, pct, after: resetText(reset),
+      tip: `${cx}${label}已用 ${Math.round(pct)}%${resetText(reset, true) ? "，" + resetText(reset, true) : ""}` });
+    // ChatGPT 的 Codex 额度一点没用时（多数人只聊天不用 Codex），列表里还是显示对话数，额度和重置时间放在详情里
+    const codexIdle = cx && !((u.week || 0) > 0 || (u.fiveHour || 0) > 0 || (u.month || 0) > 0);
+    if (codexIdle) return `${L.plan.label} · 近 7 天 ${(L.stats && L.stats.convs7) || 0} 个对话`;
+    if (u.week != null) return quota("本周额度", u.week, u.weekReset);
+    if (u.fiveHour != null) return quota("5 小时额度", u.fiveHour, u.fiveHourReset);
+    if (u.month != null) return quota("本月额度", u.month, u.monthReset);
     return `${L.plan.label} · 近 7 天 ${(L.stats && L.stats.convs7) || 0} 个对话`;
   }
   const a = s.account;
   // 网盘：空间用量
-  if (p && p.storage && a && a.storage) return `空间 ${a.storage.label} · ${a.storage.pct}%`;
+  if (p && p.storage && a && a.storage) return { lead: "", label: "空间", detail: a.storage.label, pct: a.storage.pct, tip: `已用 ${a.storage.label}` };
   // 有观看记录片名的（腾讯视频）：套餐 + 最近看的片名
   const wt = s.watchTitle && s.watchTitle.title && s.lastWatched && s.watchTitle.at === s.lastWatched ? s.watchTitle.title : "";
   if (wt) return (p && a && a.plan && (a.status === "ok" || !a.status) ? a.plan.label + " · " : "") + "最近看 " + wt;
+  // 接口里读到了额度（智谱 Coding Plan）：套餐 + 额度 + 重置
+  if (p && a && a.plan && s.apiInfo && s.apiInfo.quota && s.apiInfo.quota.pct != null && (a.status === "ok" || !a.status)) {
+    const q = s.apiInfo.quota;
+    return { lead: a.plan.label, label: q.label, pct: q.pct, after: resetText(q.resetAt),
+             tip: `${q.label}已用 ${Math.round(q.pct)}%${resetText(q.resetAt, true) ? "，" + resetText(q.resetAt, true) : ""}` };
+  }
+  // DeepSeek / 智谱：套餐 + API 余额
+  if (p && a && a.plan && s.apiInfo && s.apiInfo.balance != null && (a.status === "ok" || !a.status))
+    return `${a.plan.label} · API 余额 ${s.apiInfo.currency === "CNY" ? "¥" : (s.apiInfo.currency || "") + " "}${Number(s.apiInfo.balance).toFixed(2)}`;
+  // 账户页读到了额度（Cursor）：套餐 + 额度 + 重置时间
+  if (p && a && a.plan && a.quota && (a.status === "ok" || !a.status) && a.quota.pct != null) {
+    const q = a.quota;
+    return { lead: a.plan.label, label: q.label, pct: q.pct, after: resetText(q.resetAt),
+             tip: `${q.label}已用 ${Math.round(q.pct)}%${resetText(q.resetAt, true) ? "，" + resetText(q.resetAt, true) : ""}` };
+  }
   // 其它收录服务：套餐 + 续费日
   if (p && a && a.plan && (a.status === "ok" || !a.status)) return a.plan.label + (a.renewAt ? ` · ${md(a.renewAt)} 续费` : "");
   if (p) return SV_CAT[p.cat] || "";
   if (s.provider === "claude" || s.provider === "chatgpt") return "AI 助手";
   return s.urlPattern || (s.mode === "none" ? "电视 / 手机" : "");
 }
+// ---------- 置顶（最多 3 个）：列表上方一排小卡片，点开看详情 ----------
+const PIN_MAX = 3;
+const pinnedIds = () => (Array.isArray(state.pinned) ? state.pinned : []).filter(id => (state.subs || []).some(x => x.id === id));
+async function togglePin(id) {
+  const cur = pinnedIds();
+  let next;
+  if (cur.includes(id)) next = cur.filter(x => x !== id);
+  else {
+    if (cur.length >= PIN_MAX) { busyToast(`最多置顶 ${PIN_MAX} 个，先取消一个再置顶`, "bad"); return; }
+    next = cur.concat(id);
+  }
+  state.pinned = next;
+  renderSubs();
+  await send({ type: "SET_PIN", ids: next });
+}
+// 使用频次：收录服务用官方记录（近 7 / 30 天用了几天），拿不到就不列；按浏览器访问的列访问次数
+function pushUseRows(s, rows, now, quiet) {
+  if (isOfficialUsage(s, !!s.llm)) {
+    const u = usageStats(s);
+    if (u) rows.push(["近 7 / 30 天使用", `${u.d7} / ${u.d30}${u.partial ? "+" : ""} 天`]);
+    return;
+  }
+  if (quiet) return;
+  const vs = visitStats(s.visitLog, now);
+  rows.push(["最近访问", vs.last ? fmtShort(vs.last) : "无记录"]);
+  rows.push(["近 7 / 30 天访问", `${vs.d7} / ${vs.d30} 次`]);
+}
+// 卡片内容：主指标（剩余额度 / 剩余空间 / 最近使用）+ 详情里的几行
+function pinCardData(s, now) {
+  const md = (t) => new Date(t).toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" });
+  const mdhm = (t) => `${md(t)} ${new Date(t).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false })}`;
+  // 没有重置时间：额度一点没用时窗口还没开始计时（Claude 这时不给重置时间），其它情况显示 --
+  const when = (x, used) => { const t = toMs(x); return t && t > now ? mdhm(t) : used === 0 ? "未开始计时" : "--"; };
+  const pctLeft = (v) => Math.max(0, Math.min(100, 100 - Math.round(v)));
+  const a = s.account || {};
+  const L = s.llm;
+  const plan = (L && L.plan && L.plan.label) || (a.plan && a.plan.label) || "";
+  const rows = [];
+  let main = null;
+  const U = L && L.usage;
+  const cx = U && U.source === "codex" ? "Codex " : "";
+  if (U && (U.week != null || U.fiveHour != null || U.month != null)) {
+    // 大模型：主指标取本周 > 5 小时 > 本月，其余额度和各自的重置时间放详情
+    const [k, label, rk] = U.week != null ? ["week", "本周", "weekReset"] : U.fiveHour != null ? ["fiveHour", "5 小时", "fiveHourReset"] : ["month", "本月", "monthReset"];
+    main = { title: `${cx}${label}剩余额度`, short: `${cx}${label}剩余`, pct: pctLeft(U[k]), used: Math.round(U[k]), reset: U[rk] };
+    if (U.fiveHour != null && k !== "fiveHour") rows.push([`${cx}5 小时剩余额度`, `${pctLeft(U.fiveHour)}%`]);
+    if (U.month != null && k !== "month") rows.push([`${cx}月度剩余额度`, `${pctLeft(U.month)}%`]);
+    if (U.weekReset || U.week != null) rows.push(["周额度重置", when(U.weekReset, U.week)]);
+    if (U.fiveHour != null) rows.push(["5 小时额度重置", when(U.fiveHourReset, U.fiveHour)]);
+    if (U.month != null) rows.push(["月额度重置", when(U.monthReset, U.month)]);
+  } else if ((a.quota && a.quota.pct != null) || (s.apiInfo && s.apiInfo.quota && s.apiInfo.quota.pct != null)) {
+    const q = (s.apiInfo && s.apiInfo.quota && s.apiInfo.quota.pct != null) ? s.apiInfo.quota : a.quota;
+    main = { title: q.label.replace("额度", "剩余额度"), short: q.label.replace("额度", "剩余"), pct: pctLeft(q.pct), used: Math.round(q.pct), reset: q.resetAt };
+    rows.push([q.label.replace("本月", "月") + "重置", when(q.resetAt, q.pct)]);
+  } else if (a.storage && a.storage.pct != null) {
+    main = { title: "剩余空间", short: "剩余空间", pct: pctLeft(a.storage.pct), used: Math.round(a.storage.pct), };   // 具体容量在右边「空间」一行，圆环下面只写百分比
+    rows.push(["空间", a.storage.label]);
+  } else {
+    // 没有额度的服务：主指标是最近使用，右边列出判断依据和访问情况
+    main = { title: "最近使用", short: "最近使用", text: s.lastUsedFloor ? "90天+" : s.lastUsed ? fmtShort(s.lastUsed) : "—", sub: usageBasis(s, !!L).text };
+    if (s.watchTitle && s.watchTitle.title && s.lastWatched && s.watchTitle.at === s.lastWatched) rows.push(["最近看", s.watchTitle.title]);
+    pushUseRows(s, rows, now);
+  }
+  if (s.apiInfo && s.apiInfo.balance != null) {
+    const cur = s.apiInfo.currency === "CNY" ? "¥" : (s.apiInfo.currency || "") + " ";
+    rows.push(["API 余额", `${cur}${Number(s.apiInfo.balance).toFixed(2)}`]);
+    if (s.apiInfo.totalCost != null) rows.push(["累计消费", `${cur}${Number(s.apiInfo.totalCost).toFixed(2)}`]);
+    if (s.apiInfo.lastApiDay) rows.push(["最近调用", md(s.apiInfo.lastApiDay)]);
+  }
+  if (main.pct != null) { rows.push(["最近使用", s.lastUsedFloor ? "90 天+" : s.lastUsed ? fmtShort(s.lastUsed) : "—"]); pushUseRows(s, rows, now, true); }
+  if (s.price) rows.push(["费用", `${s.currency || "$"}${Number(s.price).toFixed(2)} / 月`]);
+  const renew = (L && L.renewAt) || a.renewAt;
+  if (renew) rows.push(["下次续费", md(renew)]);
+  return { plan, main, rows };
+}
+function ringHtml(pct, center, tone) {
+  const r = 26, c = 2 * Math.PI * r, v = pct == null ? 0 : Math.max(0, Math.min(100, pct));
+  return `<span class="pn-ring ${tone}"><svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="${r}" class="trk"/>${pct == null ? "" :
+    `<circle cx="32" cy="32" r="${r}" class="val" stroke-dasharray="${(c * v / 100).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 32 32)"/>`}</svg><b>${center}</b></span>`;
+}
+// 置顶的订阅：每个一张完整的信息卡（不用点开），左边主指标圆环，右边列出全部细节
+function renderPinCard(now) {
+  const box = $("pinCard");
+  if (!box) return;
+  const ids = pinnedIds();
+  if (!ids.length || sortMode) { box.hidden = true; box.innerHTML = ""; return; }
+  box.innerHTML = ids.map(id => {
+    const s = state.subs.find(x => x.id === id);
+    const d = pinCardData(s, now), st = computeStatus(s, now), m = d.main;
+    const tone = m.pct == null ? (st.state === "idle" ? "warn" : "none") : m.pct < 20 ? "bad" : m.pct < 50 ? "warn" : "good";
+    const center = m.pct != null ? `${m.pct}<small>%</small>` : `<span class="txt">${esc(m.text)}</span>`;
+    // 每张卡片同一套头部：名称 · 套餐 · 使用状态（和列表里的状态标签一样），右边是更新时间 + 检查 + 取消置顶
+    const hm = (t) => new Date(t).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
+    const lc = s.lastChecked;
+    // 按日历日算：今天只写时刻，昨天写「昨天」，更早写日期
+    const dayDiff = lc ? Math.round((new Date(now).setHours(0, 0, 0, 0) - new Date(lc).setHours(0, 0, 0, 0)) / 86400000) : 0;
+    const upd = !lc ? "还没检查" : `更新 ${dayDiff <= 0 ? "" : dayDiff === 1 ? "昨天 " : new Date(lc).toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" }) + " "}${hm(lc)}`;
+    const flag = `<span class="sv-status pn-st ${st.state}">${esc(SV_STATUS[st.state] || "")}</span><span class="pn-flag">${esc(upd)}</span>`;
+    const sub = m.pct != null ? (m.usedText || `已使用 ${m.used}%`) : (m.sub || "");
+    const rows = d.rows.map(([k, v]) => `<div><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join("");
+    return `<div class="pn-card">
+      <div class="pn-head">${avatarHtml(s.catalogId || s.provider || s.id)}<b>${esc(s.name)}</b>${siteLink(s, "pn-site")}${d.plan ? `<span class="pn-plan">${esc(d.plan)}</span>` : ""}${flag}
+        <button type="button" class="pn-chk${checking.has(id) ? " spinning" : ""}" data-pin-chk="${esc(id)}" title="${checking.has(id) ? "检查中…" : "检查"}" ${checking.has(id) ? "disabled" : ""}>${SV_ICON.check}</button>
+        <button type="button" class="pn-x" data-pin="${esc(id)}" title="取消置顶">×</button></div>
+      <div class="pn-body">
+        <div class="pn-main">${ringHtml(m.pct, center, tone)}<div class="pn-label">${esc(m.short || m.title)}</div><div class="pn-sub">${esc(sub)}</div></div>
+        ${rows ? `<div class="pn-rows">${rows}</div>` : ""}
+      </div>
+    </div>`;
+  }).join("");
+  box.hidden = false;
+}
+$("pinCard").addEventListener("click", async (e) => {
+  const st = e.target.closest && e.target.closest("[data-site]");
+  if (st) { send({ type: "OPEN_TAB", url: st.dataset.site }); return; }
+  const c = e.target.closest && e.target.closest("[data-pin-chk]");
+  if (c) { if (!checking.has(c.dataset.pinChk)) await checkSubs([c.dataset.pinChk]); return; }
+  const b = e.target.closest && e.target.closest("[data-pin]");
+  if (b) await togglePin(b.dataset.pin);
+});
 function renderSubs() {
   const now = Date.now();
   const subs = state.subs;
   const rowsAll = subs.map(s => ({ s, st: computeStatus(s, now) }));
+  renderPinCard(now);
   const idle = rowsAll.filter(r => r.st.state === "idle");
   $("cnt").textContent = state.subLimit != null ? `${subs.length}/${state.subLimit}` : subs.length;
   $("idleCnt").textContent = idle.length;
@@ -234,7 +422,7 @@ function renderSubs() {
     const all = sortRows(rowsAll), n = all.length;
     $("subList").innerHTML = all.map(({ s }, i) => `<div class="sv-srow" data-id="${esc(s.id)}">
       <span class="sv-grip" data-grip="${esc(s.id)}" tabindex="0" role="button" title="按住拖动（选中后也可以按 ↑ ↓）" aria-label="拖动调整「${esc(s.name)}」的位置">${SV_ICON.grip}</span>
-      <div class="sv-prod">${avatarHtml(s.catalogId || s.provider || s.id)}<div><b>${esc(s.name)}</b><small>${esc(subCaption(s))}</small></div></div>
+      <div class="sv-prod">${avatarHtml(s.catalogId || s.provider || s.id)}<div><b>${esc(s.name)}</b><small>${subCaptionHtml(s)}</small>${capBarHtml(s)}</div></div>
       <button class="sv-mv" data-mv="top" data-id="${esc(s.id)}" title="置顶" ${i === 0 ? "disabled" : ""}>${SV_ICON.top}</button>
       <button class="sv-mv" data-mv="up" data-id="${esc(s.id)}" title="上移" ${i === 0 ? "disabled" : ""}>${SV_ICON.up}</button>
       <button class="sv-mv" data-mv="down" data-id="${esc(s.id)}" title="下移" ${i === n - 1 ? "disabled" : ""}>${SV_ICON.down}</button>
@@ -256,21 +444,20 @@ function renderSubs() {
     let fix = "";
     if (st.state === "signal_lost") {
       const since = st.days > 0 ? `已 ${st.days} 天读不到。` : "";
-      fix = `<div class="fixit">${since}${FIX[st.reason] || FIX.read_failed}
+      const detail = (st.reason === "read_failed" || st.reason === "logged_out") && s.signal && s.signal.detail ? `<div class="fixdetail">详情：${esc(s.signal.detail)}</div>` : "";
+      fix = `<div class="fixit">${since}${FIX[st.reason] || FIX.read_failed}${detail}
         <div><button data-fix="${esc(s.id)}">${st.reason === "logged_out" ? "去登录" : "去处理"}</button></div></div>`;
     }
     const busy = checking.has(s.id), open = openRows.has(s.id);
     return `<div class="sv-row st-${st.state}${open ? " open" : ""}" data-id="${esc(s.id)}">
       <div class="sv-main" data-toggle="${esc(s.id)}" title="点开看详情">
-        <div class="sv-prod">${avatarHtml(s.catalogId || s.provider || s.id)}<div><b>${esc(s.name)}</b><small>${esc(subCaption(s))}${s.price ? `<span class="sv-fee-in"> · ${esc(s.currency || "$")}${Number(s.price).toFixed(2)}/月</span>` : ""}</small></div></div>
+        <div class="sv-prod">${avatarHtml(s.catalogId || s.provider || s.id)}<div><b>${esc(s.name)}${pinStar(s)}${siteLink(s)}</b><small>${subCaptionHtml(s)}${s.price ? `<span class="sv-fee-in"> · ${esc(s.currency || "$")}${Number(s.price).toFixed(2)}/月</span>` : ""}</small>${capBarHtml(s)}</div></div>
         <span class="sv-fee">${fee}</span>
         <span class="sv-used${st.state === "idle" ? " warm" : ""}">${esc(used)}</span>
         <span class="sv-status ${st.state}">${esc(SV_STATUS[st.state])}</span>
       </div>
       <div class="sv-detail">
-        <div class="sv-metrics">
-          ${usageCells(s, vs, isChat)}
-        </div>
+        ${usageCells(s, vs, isChat)}
         ${watchTitleHtml(s)}
         ${s.llm && st.state !== "signal_lost" ? llmHtml(s) : ""}
         ${s.catalogId && SubCatalog.BY_ID[s.catalogId] && !SubCatalog.BY_ID[s.catalogId].special ? acctHtml(s, st) : ""}
@@ -278,6 +465,7 @@ function renderSubs() {
         <div class="sv-foot">
           <span class="sv-muted">${known ? "最近检查 " + esc((s.lastChecked || (s.account && s.account.checkedAt)) ? fmtCheck(s.lastChecked || s.account.checkedAt) : "还没检查") : "只统计浏览器访问"}</span>
           <button class="sv-icon${busy ? " spinning" : ""}" data-chk="${esc(s.id)}" title="${busy ? "检查中…" : "检查"}" ${busy ? "disabled" : ""}>${SV_ICON.check}</button>
+          ${siteUrlOf(s) ? `<button class="sv-icon" data-site="${esc(siteUrlOf(s))}" title="打开网站">${SV_ICON.ext}</button>` : ""}
           <button class="sv-icon" data-edit="${esc(s.id)}" title="编辑">${SV_ICON.edit}</button>
           <button class="sv-icon danger" data-del="${esc(s.id)}" title="删除">${SV_ICON.del}</button>
         </div>
@@ -414,6 +602,8 @@ function providerKind(s) {
 // 对话 / 使用记录类（Gemini、Cursor 等）：没有片名，也不显示「观看记录」链接
 function isChatProvider(s) { const k = providerKind(s); return k === "chat" || k === "usage"; }
 function usageBasis(s, isLlm) {
+  // 对话类服务（Gemini、DeepSeek、Grok 等）不管调用方传没传，都按对话记录说；只有视频类才叫观看记录
+  isLlm = isLlm || isChatProvider(s);
   if (providerKind(s) === "usage") {
     if (SubLib.hasWatchTime(s)) return { text: "按使用记录", tip: "使用记录里最近一次 AI 请求的时间（在编辑器里用也算），只打开网页不算" };
     return { text: "按浏览器访问", tip: "使用记录暂时读不到，先按在本浏览器打开网站的时间判断" };
@@ -429,12 +619,41 @@ function usageBasis(s, isLlm) {
   if (s.mode === "browser") return { text: "按浏览器访问", tip: "在本浏览器打开这个网站的时间" };
   return { text: "不参与判断", tip: "" };
 }
+// 用官方记录判断的订阅（不是按浏览器访问）
+function isOfficialUsage(s, isLlm) {
+  const t = usageBasis(s, isLlm).text;
+  return t !== "按浏览器访问" && t !== "不参与判断";
+}
+// 近 7 / 30 天用了几天：大模型来自对话列表统计，其它收录服务来自官方记录里每条的时间；拿不到返回 null
+function usageStats(s) {
+  const L = s.llm && s.llm.stats;
+  if (L && (L.activeDays30 != null || L.activeDays7 != null)) {
+    return { d7: L.activeDays7 || 0, d30: L.activeDays30 || 0, n7: L.convs7, n30: L.convs30, partial: !!L.capped, unit: "个对话" };
+  }
+  const u = s.useStats;
+  if (u && u.d30 != null && SubLib.hasWatchTime(s)) return Object.assign({ unit: providerKind(s) === "usage" ? "次" : isChatProvider(s) ? "个对话" : "条" }, u);
+  return null;
+}
 function usageCells(s, vs, isLlm) {
   const b = usageBasis(s, isLlm);
   const used = s.lastUsedFloor ? "90 天+" : s.lastUsed ? fmtShort(s.lastUsed) : "—";
-  return `<div title="${esc(b.tip)}"><span>最近使用</span><b>${esc(used)}</b><small>${esc(b.text)}</small></div>
-    <div title="在本浏览器里打开这个网站的最近一次时间（打开不一定等于在用）"><span>最近访问</span><b>${esc(vs.last ? fmtShort(vs.last) : "无记录")}</b><small>打开网站</small></div>
-    <div><span>近 7 天访问</span><b>${vs.d7} 次</b></div><div><span>近 30 天访问</span><b>${vs.d30} 次</b></div>`;
+  const first = `<div title="${esc(b.tip)}"><span>最近使用</span><b>${esc(used)}</b><small>${esc(b.text)}</small></div>`;
+  // 按浏览器访问的：最近使用就是最近访问，不重复显示，只留访问的三格（最近访问也就是判断依据）
+  if (!isOfficialUsage(s, isLlm)) {
+    if (b.text === "不参与判断") return `<div class="sv-metrics c1">${first}</div>`;
+    // 读浏览历史补上的访问（装插件之前的）不在访问日志里，取两者里更晚的
+    const last = s.lastUsedFloor ? 0 : Math.max(vs.last || 0, s.lastUsed || 0);
+    const lastTxt = last ? fmtShort(last) : s.lastUsedFloor ? "90 天+" : "无记录";
+    return `<div class="sv-metrics c3"><div title="${esc(b.tip)}"><span>最近访问</span><b>${esc(lastTxt)}</b><small>${esc(b.text)}</small></div>
+    <div><span>近 7 天访问</span><b>${vs.d7} 次</b></div><div><span>近 30 天访问</span><b>${vs.d30} 次</b></div></div>`;
+  }
+  // 收录服务用官方记录：有每天的使用记录就显示近 7 / 30 天用了几天，没有就只显示最近使用
+  const u = usageStats(s);
+  if (!u) return `<div class="sv-metrics c1">${first}</div>`;
+  const cnt = (n) => (n != null && u.unit ? `${n}${u.partial ? "+" : ""} ${u.unit}` : "");
+  return `<div class="sv-metrics c3">${first}
+    <div title="近 7 天里有使用记录的天数"><span>近 7 天使用</span><b>${u.d7} 天</b><small>${esc(cnt(u.n7))}</small></div>
+    <div title="近 30 天里有使用记录的天数${u.partial ? "（只读了最近的一部分记录，实际可能更多）" : ""}"><span>近 30 天使用</span><b>${u.d30}${u.partial ? "+" : ""} 天</b><small>${esc(cnt(u.n30))}</small></div></div>`;
 }
 // 观看记录里最近看的片名（只有能读到片名的服务才有，比如腾讯视频）
 // 观看记录类订阅（视频）：「最近看的」一行 + 右侧跳到该服务观看记录页的链接。
@@ -481,7 +700,9 @@ function diagText(d) {
     `价格：${a.price ? a.price.currency + a.price.monthly + "/月" : "未读到"}　续费日：${a.renewAt ? new Date(a.renewAt).toLocaleDateString("zh-CN") : "未读到"}`,
     a.storage ? `空间：${a.storage.label}（${a.storage.pct}%）` : d.quotaError ? `空间：没读到（用量接口：${d.quotaError}）` : "",
     d.injectError ? `注入失败：${d.injectError}` : "",
-    d.activity ? (d.activity.error ? "观看记录：读取失败" : d.activity.loggedOut ? "观看记录：没登录"
+    d.activity ? (d.activity.error ? "观看记录：读取失败" : d.activity.loggedOut ? `观看记录：没登录${d.activity.detail ? "（" + d.activity.detail + "）" : ""}`
+      : d.activity.empty ? `观看记录：官方记录为空（按闲置算）${d.activity.detail ? "　" + d.activity.detail : ""}`
+      : !d.activity.count && d.activity.detail ? `观看记录：没读到（${d.activity.detail}）${d.activity.pageUrl ? "　页面：" + d.activity.pageUrl.split("?")[0] : ""}`
       : d.activity.guestOnly ? `观看记录：账户页显示没登录，读到的 ${d.activity.count} 条可能只是本机的游客记录，不采用`
       : `观看记录：抓到 ${d.activity.count} 条${d.activity.lastTs ? `，最近一次观看 ${new Date(d.activity.lastTs).toLocaleString("zh-CN", { hour12: false })}${d.activity.sample && d.activity.sample[0] ? `（${d.activity.sample[0]}）` : ""}` : ""}${d.activity.topLabel ? `，第一组「${d.activity.topLabel}」` : ""}${d.activity.count ? "（" + d.activity.ids.join("、") + "）" : "，没认出条目"}${d.activity.calls ? "　接口调用：" + d.activity.calls.map(c => `${c.appid || "?"}/${c.ret}/${c.n}`).join(" ") : ""}${d.activity.source ? "　来源：" + d.activity.source : ""}${!d.activity.lastTs && d.activity.sample && d.activity.sample.length ? "　片名：" + d.activity.sample.join("、") : ""}${d.activity.pageUrl ? "　观看记录页：" + d.activity.pageUrl : ""}${d.activity.hrefs && d.activity.hrefs.length ? "　链接示例：" + d.activity.hrefs.join(" ") : ""}${d.activity.fresh ? "　跳过缓存重取：" + (d.activity.fresh.error ? "失败 " + d.activity.fresh.error : `${d.activity.fresh.ret}/${d.activity.fresh.n}`) : ""}`) : "",
     `页面文字 ${d.textLength} 字，开头：`,
@@ -502,6 +723,13 @@ function acctHtml(s, st) {
     if (a.renewAt) bits.push("下次续费 " + new Date(a.renewAt).toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" }));
     body = `<div>${bits.join(" · ")}</div>`;
     if (a.storage) body += `<div>空间：${meter(a.storage.pct)}（${esc(a.storage.label)}）</div>`;
+    if (s.apiInfo && s.apiInfo.balance != null) {
+      const cur = s.apiInfo.currency === "CNY" ? "¥" : (s.apiInfo.currency || "") + " ";
+      const day = s.apiInfo.lastApiDay ? new Date(s.apiInfo.lastApiDay).toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" }) : "";
+      body += `<div>API：余额 <b>${esc(cur + Number(s.apiInfo.balance).toFixed(2))}</b>${s.apiInfo.totalCost != null ? ` · 累计消费 ${esc(cur + Number(s.apiInfo.totalCost).toFixed(2))}` : ""} · ${day ? `最近调用 ${esc(day)}` : "近期没有调用"}</div>`;
+    }
+    if (s.apiInfo && s.apiInfo.quota && s.apiInfo.quota.pct != null) { const q = s.apiInfo.quota; body += `<div><span class="q">${esc(q.label)}：${meter(q.pct)}${resetText(q.resetAt, true) ? `（${esc(resetText(q.resetAt, true))}）` : ""}</span></div>`; }
+    if (a.quota && a.quota.pct != null) body += `<div><span class="q">${esc(a.quota.label)}：${meter(a.quota.pct)}${resetText(a.quota.resetAt, true) ? `（${esc(resetText(a.quota.resetAt, true))}）` : ""}</span></div>`;
   } else if (a.status === "unknown") {
     body = `<div>打开了账户页，但没认出套餐。</div>`;
   } else {
@@ -522,6 +750,25 @@ function meter(v) {
   const w = Math.max(0, Math.min(100, v));
   return `<span class="meter"><i style="width:${w}%"></i></span>${v}%`;
 }
+// 额度重置时间：24 小时内显示「14:20 重置」，再远显示「11/05 重置」（long：「11/05 00:00 重置」）；已过期的不显示
+// 重置时间可能是毫秒数，也可能是旧版本 / 别的设备同步来的 ISO 字符串（2.38 以前存的是字符串）
+function toMs(x) {
+  if (x == null || x === "") return 0;
+  if (typeof x === "number") return x < 1e11 ? x * 1000 : x;
+  const n = Number(x);
+  if (!isNaN(n) && n > 0) return n < 1e11 ? n * 1000 : n;
+  const t = Date.parse(x);
+  return isNaN(t) ? 0 : t;
+}
+function resetText(ts, long) {
+  const t = toMs(ts);
+  if (!t || t <= Date.now()) return "";
+  const d = new Date(t);
+  const hm = d.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
+  const md = d.toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" });
+  if (t - Date.now() < 86400000 && d.getDate() === new Date().getDate()) return `${hm} 重置`;
+  return long ? `${md} ${hm} 重置` : `${md} 重置`;
+}
 function llmHtml(s) {
   const L = s.llm, st = L.stats || {};
   const ORIGIN = { apple: "经 App Store 付费，要在 iPhone 的订阅管理里退", google: "经 Google Play 付费，要在 Play 商店里退" };
@@ -529,8 +776,15 @@ function llmHtml(s) {
     T("近 30 天用了 {n} 天", { n: `<b>${st.activeDays30 || 0}</b>` }),
     T("近 7 天 {n} 个对话", { n: `<b>${st.convs7 || 0}</b>` })].join(" · ");
   let line2 = "";
-  if (L.usage && (L.usage.fiveHour != null || L.usage.week != null)) {
-    line2 = `<div>额度：5 小时 ${meter(L.usage.fiveHour)} · 本周 ${meter(L.usage.week)}${L.usage.weekOpus != null ? ` · 本周高阶模型 ${meter(L.usage.weekOpus)}` : ""}</div>`;
+  const U = L.usage || {};
+  if (U.fiveHour != null || U.week != null || U.month != null) {
+    const rs = (ts) => { const r = resetText(ts, true); return r ? `<small class="reset">（${esc(r)}）</small>` : ""; };
+    const parts = [];
+    if (U.fiveHour != null) parts.push(`5 小时 ${meter(U.fiveHour)}${rs(U.fiveHourReset)}`);
+    if (U.week != null) parts.push(`本周 ${meter(U.week)}${rs(U.weekReset)}`);
+    if (U.weekOpus != null) parts.push(`本周高阶模型 ${meter(U.weekOpus)}`);
+    if (U.month != null) parts.push(`本月 ${meter(U.month)}${rs(U.monthReset)}`);
+    line2 = `<div>${U.source === "codex" ? "Codex 额度" : "额度"}：${parts.map(x => `<span class="q">${x}</span>`).join(" · ")}</div>`;
   }
   const extra = [];
   if (L.renewAt) extra.push("下次续费 " + new Date(L.renewAt).toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" }));
@@ -1111,7 +1365,7 @@ function llmDiagHtml(p, d) {
   const st = d.stats || {}, u = d.usage || {};
   return `<div class="diag good">✓ 已登录，套餐：<b>${esc(d.plan ? d.plan.label : "未知")}</b>${d.origin ? `（付费渠道：${esc(d.origin)}）` : ""}
     <br>对话列表读到 ${d.convCount} 条，最近一次 ${esc(fmtDate(st.lastUsed))}，近 30 天活跃 ${st.activeDays30 || 0} 天
-    ${u.fiveHour != null || u.week != null ? `<br>额度：5 小时 ${u.fiveHour ?? "—"}% · 本周 ${u.week ?? "—"}%` : ""}
+    ${u.fiveHour != null || u.week != null || u.month != null ? `<br>${u.source === "codex" ? "Codex 额度" : "额度"}：5 小时 ${u.fiveHour ?? "—"}%${resetText(u.fiveHourReset, true) ? "（" + resetText(u.fiveHourReset, true) + "）" : ""} · 本周 ${u.week ?? "—"}%${resetText(u.weekReset, true) ? "（" + resetText(u.weekReset, true) + "）" : ""}${u.month != null ? ` · 本月 ${u.month}%${resetText(u.monthReset, true) ? "（" + resetText(u.monthReset, true) + "）" : ""}` : ""}` : ""}
     ${d.renewAt ? `<br>下次续费：${esc(new Date(d.renewAt).toLocaleDateString("zh-CN"))}` : ""}
     ${shapes}</div>`;
 }
@@ -1228,6 +1482,8 @@ $("subList").addEventListener("click", async (e) => {
     if (row) { const id = row.dataset.toggle; openRows.has(id) ? openRows.delete(id) : openRows.add(id); renderSubs(); }
     return;
   }
+  if (ds.pin) { await togglePin(ds.pin); return; }
+  if (ds.site) { send({ type: "OPEN_TAB", url: ds.site }); return; }
   const edit = ds.edit, del = ds.del, fix = ds.fix;
   let chk = ds.chk, cdiagAlt = null;
   // 开发排查：按住 Alt 点「检查」= 诊断（显示读取明细），只对收录服务有效

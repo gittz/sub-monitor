@@ -32,13 +32,43 @@
       plans: [[/"subscription_tier"\s*:\s*"max"/i, "Max", true], [/"subscription_tier"\s*:\s*"enterprise[^"]*"/i, "Enterprise Pro", true],
               [/"subscription_tier"\s*:\s*"pro"/i, "Pro", true]],
       free: /"subscription_status"\s*:\s*"none"|"subscription_tier"\s*:\s*null/i },
+    // 智谱 BigModel：财务总览页（登录后有「财务总览 / 可用余额」）。按量付费没有套餐；GLM Coding Plan 订阅从接口读（见 activity.js zhipuExtract）
+    { id: "zhipu", name: "智谱 BigModel", cat: "ai", domains: ["bigmodel.cn", "open.bigmodel.cn"], accountUrl: "https://bigmodel.cn/finance-center/finance/overview",
+      currency: "¥", activity: "zhipu", skipPagePrice: true,
+      plans: [[/GLM Coding (Max|Pro|Lite)/i, "GLM Coding Plan", true]], free: /可用余额|财务总览/ },
+    // DeepSeek：网页版对话免费，没有订阅套餐（API 是按量充值，不算订阅）。登录后首页有「开启新对话」，没登录会跳到登录页
+    { id: "deepseek", name: "DeepSeek", cat: "ai", domains: ["chat.deepseek.com", "deepseek.com"], accountUrl: "https://chat.deepseek.com/",
+      currency: "¥", activity: "deepseek", skipPagePrice: true,
+      plans: [], free: /开启新对话|New chat/i },
+    // Midjourney：账户页。未订阅时整页是「Purchase a subscription / Choose the plan that works for you」+ 各套餐价格（实测）；
+    // 已订阅时的页面文字没实测，按「Your plan」后第一行的套餐名匹配（Basic / Standard / Pro / Mega）。没有免费版
+    { id: "midjourney", name: "Midjourney", cat: "ai", domains: ["midjourney.com"], accountUrl: "https://www.midjourney.com/account",
+      currency: "$", activity: "midjourney", skipPagePrice: true,
+      planAnchor: /Purchase a subscription|Your (current )?plan|Current plan|Subscription plan/i,
+      plans: [[/\bMega\b/i, "Mega", true], [/\bPro\b/i, "Pro", true], [/\bStandard\b/i, "Standard", true], [/\bBasic\b/i, "Basic", true]],
+      free: /Choose the plan that works for you/i },
+    // Poe：设置 →「订阅和积分」页，「您的套餐」下面第一行。免费账号实测为「免费套餐」；付费时的文字没实测，按订阅字样匹配
+    { id: "poe", name: "Poe", cat: "ai", domains: ["poe.com"], accountUrl: "https://poe.com/settings?tab=subscription",
+      currency: "$", activity: "poe", skipPagePrice: true,
+      planAnchor: /您的套餐|你的套餐|Your plan/i,
+      plans: [[/订阅|Subscri|Premium|Pro\b|\$\s*\d/i, "Poe 订阅", true]],
+      free: /免费套餐|免费|Free/i },
+    // Grok：套餐读网页版自己用的订阅接口（返回 JSON）。免费账号实测为 {"subscriptions":[]}；
+    // 付费时的字段按 xAI 的套餐名匹配（SuperGrok / SuperGrok Heavy / X Premium+），还没用付费账号实测
+    { id: "grok", name: "Grok", cat: "ai", domains: ["grok.com"], accountUrl: "https://grok.com/rest/subscriptions",
+      currency: "$", activity: "grok", skipPagePrice: true,
+      plans: [[/SUPER_?GROK_?HEAVY|SuperGrok Heavy/i, "SuperGrok Heavy", true], [/SUPER_?GROK|GROK_?PRO|SuperGrok/i, "SuperGrok", true],
+              [/X_?PREMIUM_?PLUS|PREMIUM\+/i, "X Premium+", true]],
+      free: /"subscriptions"\s*:\s*\[\s*\]/i },
     // Cursor：套餐读后台自己用的用量接口（返回 JSON），看 membershipType。free 已实测，其它取值按 Cursor 的套餐名写
     { id: "cursor", name: "Cursor", cat: "ai", domains: ["cursor.com"], accountUrl: "https://cursor.com/api/usage-summary",
       currency: "$", activity: "cursor", skipPagePrice: true,
       plans: [[/"membershipType"\s*:\s*"ultra"/i, "Ultra", true], [/"membershipType"\s*:\s*"pro_?plus"/i, "Pro+", true],
               [/"membershipType"\s*:\s*"free_trial"/i, "Pro 试用", true], [/"membershipType"\s*:\s*"pro"/i, "Pro", true],
               [/"membershipType"\s*:\s*"enterprise"/i, "Enterprise", true], [/"membershipType"\s*:\s*"(team|business)[^"]*"/i, "Teams", true]],
-      free: /"membershipType"\s*:\s*"free"/i },
+      free: /"membershipType"\s*:\s*"free"/i,
+      // 额度：本计费周期已用百分比 + 周期结束（= 额度重置；付费账号也是下次扣费）。字段为实测
+      jsonQuota: { pct: ["individualUsage.plan.totalPercentUsed"], resetAt: ["billingCycleEnd"], label: "本月额度", resetIsRenew: true } },
     // Microsoft Copilot：套餐在微软账户「订阅」页（Copilot Pro，或含 Copilot 的 Microsoft 365 个人版 / 家庭版）。
     // 免费账号这页只列「Microsoft 免费服务」（里面的「Microsoft 365 网页版」不是付费订阅）；价格没实测，不读
     { id: "copilot", name: "Microsoft Copilot", cat: "ai", domains: ["copilot.com", "copilot.microsoft.com"], accountUrl: "https://account.microsoft.com/services",
@@ -195,7 +225,28 @@
       if (h.parseAmount) out.price = parsePrice(text, h.parseAmount, p.currency);
       if (h.parseDate) out.renewAt = parseRenew(text, h.parseDate, now || Date.now());
     }
+    // 账户页本身是 JSON 接口（Cursor）：直接取额度百分比和重置时间
+    if (p.jsonQuota) {
+      const q = jsonQuota(text, p.jsonQuota);
+      if (q) {
+        out.quota = q;
+        if (p.jsonQuota.resetIsRenew && plan.paid && q.resetAt && !out.renewAt) out.renewAt = q.resetAt;
+      }
+    }
     return out;
+  }
+
+  function jsonQuota(text, spec) {
+    let j; try { j = JSON.parse(text); } catch (e) { return null; }
+    const get = (o, path) => String(path).split(".").reduce((c, k) => (c == null ? undefined : c[k]), o);
+    const first = (paths) => { for (const pth of [].concat(paths || [])) { const v = get(j, pth); if (v != null && v !== "") return v; } return undefined; };
+    const pct = Number(first(spec.pct));
+    if (!isFinite(pct)) return null;
+    const r = first(spec.resetAt);
+    let resetAt = null;
+    if (typeof r === "number") resetAt = r < 1e11 ? r * 1000 : r;
+    else if (r) { const t = Date.parse(r); resetAt = isNaN(t) ? null : t; }
+    return { pct: Math.round(Math.max(0, pct) * 10) / 10, resetAt, label: spec.label || "额度" };
   }
 
   // 建议（账户页类服务）。idle：{ state, days } 来自 computeStatus。

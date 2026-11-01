@@ -246,6 +246,85 @@ const CATALOG = {
     verified: true,
     note: "读取 Microsoft Copilot 聊天列表里最近一次对话的时间（不读对话内容）。手机上用同一账号的对话也算。需在本浏览器登录 Microsoft 账号。"
   },
+  zhipu: {
+    name: "智谱 BigModel",
+    domain: "bigmodel.cn",
+    activityUrl: "https://bigmodel.cn/finance-center/finance/overview",
+    strategy: "func",
+    func: "zhipuExtract",
+    kind: "usage",
+    // 读余额、GLM Coding Plan 订阅和 5 小时额度、近两个月按天账单（有消费的那天算用过）。见 activity.js zhipuExtract
+    verified: false,
+    note: "读取智谱开放平台的 API 余额、GLM Coding Plan 订阅和额度，以及近两个月有消费的日子（不读调用内容）。需在本浏览器登录 bigmodel.cn。"
+  },
+  deepseek: {
+    name: "DeepSeek",
+    domain: "chat.deepseek.com",
+    activityUrl: "https://chat.deepseek.com/",
+    strategy: "api",
+    kind: "chat",
+    // DeepSeek 网页版侧栏的对话列表接口：要带页面 localStorage 里 userToken.value 作为 Bearer 令牌（实测，不带返回 code 40003 INVALID_TOKEN）。
+    // 每条带 updated_at（秒，带小数）。不取标题，只取 ID 和时间
+    api: {
+      urls: ["https://chat.deepseek.com/api/v0/chat_session/fetch_page"],
+      authFromStorage: { key: "userToken", path: "value", scheme: "Bearer " },
+      codePath: "code", okCodes: [0], loggedOutCodes: [40001, 40002, 40003],
+      list: ["data.biz_data.chat_sessions"], id: ["id"], ts: ["updated_at"]
+    },
+    // 另外读开放平台：API 余额 + 近 30 天有没有调用（按天）。API 调用也算「在用」
+    extra: [{ url: "https://platform.deepseek.com/usage", func: "deepseekPlatformExtract" }],
+    verified: true,
+    note: "读取 DeepSeek 对话列表里最近一次对话的时间（不读对话内容），以及开放平台的 API 余额和近 30 天调用情况（按天）。手机 App 上用同一账号的对话也算。需在本浏览器登录 DeepSeek。"
+  },
+  midjourney: {
+    name: "Midjourney",
+    domain: "midjourney.com",
+    activityUrl: "https://www.midjourney.com/imagine",
+    strategy: "api",
+    kind: "usage",
+    // Midjourney「Create」页用的作品列表接口：GET /api/imagine?user_id=…，要带 X-Csrf-Protection: 1（实测，不带返回 401）。
+    // 用户 ID 取自页面里的 <script id="initialProps">（initialUserInfo.firebase.id，实测）。
+    // 未订阅账号实测返回 {"data":[]}；有作品时每条的时间字段没实测，按已知格式 enqueue_time（UTC，"2026-10-27 06:54:09.123456"）写，多给候选。
+    // 只取作品 ID 和时间，不取提示词和图片
+    api: {
+      urls: ["https://www.midjourney.com/api/imagine?user_id={{user_id}}&page_size=50"],
+      urlVars: { user_id: { script: "initialProps", path: "initialUserInfo.firebase.id" } },
+      headers: { "X-Csrf-Protection": "1" },
+      list: ["data"], id: ["id", "job_id", "parent_id"], ts: ["enqueue_time", "created_at", "createdAt", "enqueueTime"], tsUtc: true
+    },
+    verified: false,
+    note: "读取 Midjourney 作品记录里最近一次生成的时间（不读提示词和图片）。在 Discord 里生成的也算。需在本浏览器登录 midjourney.com。"
+  },
+  poe: {
+    name: "Poe",
+    domain: "poe.com",
+    activityUrl: "https://poe.com/chats",
+    strategy: "api",
+    kind: "chat",
+    // Poe 的「历史」页：对话列表由服务端渲染在 __NEXT_DATA__ 里，每条带 lastInteractionTime（微秒）。
+    // Poe 的接口要带页面算出来的签名，直接读页面数据更稳。不取标题，只取 ID 和时间
+    api: {
+      pageData: "__NEXT_DATA__",
+      list: ["props.pageProps.data.mainQuery.chats.edges", "props.pageProps.data.leftNavigationSidebarQuery.chats.edges"],
+      id: ["node.chatId", "node.chatCode", "node.id"], ts: ["node.lastInteractionTime"]
+    },
+    verified: true,
+    note: "读取 Poe 对话历史里最近一次对话的时间（不读对话内容）。手机上用同一账号的对话也算。需在本浏览器登录 Poe。"
+  },
+  grok: {
+    name: "Grok",
+    domain: "grok.com",
+    activityUrl: "https://grok.com/",
+    strategy: "api",
+    kind: "chat",
+    // Grok 网页版侧栏用的对话列表接口：每条带 modifyTime（UTC ISO）。不取标题，只取 ID 和时间
+    api: {
+      urls: ["https://grok.com/rest/app-chat/conversations?pageSize=20"],
+      list: ["conversations"], id: ["conversationId"], ts: ["modifyTime", "createTime"]
+    },
+    verified: true,
+    note: "读取 Grok 对话列表里最近一次对话的时间（不读对话内容）。手机上用同一账号的对话也算。需在本浏览器登录 Grok。"
+  },
   cursor: {
     name: "Cursor",
     domain: "cursor.com",
@@ -451,7 +530,8 @@ function getProviderConfig(sub) {
     key: sub.provider,
     name: base.name,
     strategy: base.strategy,
-    activityUrl: sub.activityUrl || base.activityUrl,
+    // 常见服务一律用目录里的地址（老版本留在订阅里的地址可能已经过时）；手动添加的订阅才用自己填的地址
+    activityUrl: (sub.catalogId ? null : sub.activityUrl) || base.activityUrl,
     idPattern: sub.idPattern || base.idPattern || null,
     containerSelector: sub.containerSelector || base.containerSelector || null,
     waitMs: base.waitMs || 0,
@@ -459,7 +539,9 @@ function getProviderConfig(sub) {
     loginUrlPattern: base.loginUrlPattern || null,
     api: base.api || null,
     rpc: base.rpc || null,
-    kind: base.kind || null
+    kind: base.kind || null,
+    func: base.func || null,
+    extra: base.extra || null
   };
 }
 
@@ -480,8 +562,44 @@ function waitForComplete(tabId) {
   });
 }
 
-// 后台悄悄开标签读活动记录（第一方环境，登录 Cookie 才生效），读完即关
+// 主读取 + 附加来源（如 DeepSeek 开放平台）合并：取更晚的使用时间；附加来源失败不影响主结果
 async function readActivity(cfg) {
+  const main = await readActivityMain(cfg);
+  if (!cfg || !cfg.extra || !cfg.extra.length) return main;
+  let r = main || { ids: [], debug: [] };
+  for (const ex of cfg.extra) {
+    const x = await readExtraSource(ex);
+    if (!x) continue;
+    if (x.info) r.info = Object.assign({}, r.info || {}, x.info);
+    if (x.debug && x.debug.length) r.debug = (r.debug || []).concat(x.debug.map(d => "附加：" + d));
+    // 主来源说没登录（对话页）时不拿附加来源的记录去顶替，登录判断以主来源为准
+    if (r.loggedOut === true) continue;
+    if (x.ids && x.ids.length) {
+      r.ids = (r.ids || []).concat(x.ids);
+      if ((x.lastTs || 0) > (r.lastTs || 0)) r.lastTs = x.lastTs;
+      r.count = (r.count || 0) + x.ids.length;
+      r.empty = false;
+    }
+  }
+  return r;
+}
+async function readExtraSource(ex) {
+  if (!ex || !ex.url || !ActivityLib[ex.func]) return null;
+  const tab = await openBgTab(ex.url, false);
+  try {
+    await waitForComplete(tab.id);
+    await new Promise(r => setTimeout(r, 1200));
+    const res = await chrome.scripting.executeScript({ target: { tabId: tab.id }, world: "MAIN", func: ActivityLib[ex.func] });
+    return (res && res[0] && res[0].result) || null;
+  } catch (e) {
+    return { ids: [], debug: [String(e && e.message || e).slice(0, 80)] };
+  } finally {
+    chrome.tabs.remove(tab.id).catch(() => {});
+  }
+}
+
+// 后台悄悄开标签读活动记录（第一方环境，登录 Cookie 才生效），读完即关
+async function readActivityMain(cfg) {
   if (!cfg || !cfg.activityUrl) return null;
   if (cfg.strategy === "tencent") return readTencentHistory(cfg);
   const tab = await openBgTab(cfg.activityUrl, false);
@@ -497,6 +615,8 @@ async function readActivity(cfg) {
         ? { func: ActivityLib.apiExtract, args: [cfg.api || {}] }
         : cfg.strategy === "googleRpc"
         ? { func: ActivityLib.googleRpcExtract, args: [cfg.rpc || {}] }
+        : cfg.strategy === "func" && ActivityLib[cfg.func]
+        ? { func: ActivityLib[cfg.func] }
         : { func: genericExtract, args: [{
             idPattern: cfg.idPattern,
             containerSelector: cfg.containerSelector,
@@ -505,9 +625,13 @@ async function readActivity(cfg) {
             labels: !!cfg.labels
           }] })
     });
-    return (res && res[0] && res[0].result) || null;
+    const r = res && res[0] && res[0].result;
+    if (r) { r.pageUrl = r.pageUrl || ""; return r; }
+    let url = ""; try { url = (await chrome.tabs.get(tab.id)).url || ""; } catch (e2) {}
+    return { ids: [], error: "页面脚本没有返回结果", pageUrl: url };
   } catch (e) {
-    return null;
+    let url = ""; try { url = (await chrome.tabs.get(tab.id)).url || ""; } catch (e2) {}
+    return { ids: [], error: String(e && e.message || e).slice(0, 120), pageUrl: url };
   } finally {
     chrome.tabs.remove(tab.id).catch(() => {});
   }
@@ -543,7 +667,7 @@ async function applyActivityGated(sub, r) {
   const st = sub.account && sub.account.status;
   if (st === "logged_out") {
     sub.loginState = "logged_out";
-    return applyActivityResult(sub, { ids: [], loggedOut: true });
+    return applyActivityResult(sub, { ids: [], loggedOut: true, debug: ["账户页显示没登录"] });
   }
   sub.loginState = st === "ok" ? "ok" : (r && r.ids && r.ids.length ? "unconfirmed" : null);
   // 「记录为空 → 按闲置算」只在账户页确认已登录时成立：有的接口没登录也回空结果，不能当成没用过
@@ -601,12 +725,26 @@ async function updateFromActivity(sub) {
   return applyActivityGated(sub, r);
 }
 // 官方记录里没有任何使用：有过真实使用时间就沿用，否则记成「90 天+未使用」（和浏览器 90 天无访问同一种表示）
+// 官方记录里每条的时间（ID 后面的 @分钟）→ 近 7 / 30 天里用了几天。
+// 列表只取了最近 N 条：如果 N 条都在 30 天内，30 天的天数可能更多，标 partial
+function useStatsFromIds(ids, now) {
+  const ts = (ids || []).map(x => { const m = String(x).match(/@(\d+)$/); return m ? Number(m[1]) * 60000 : 0; }).filter(t => t > 0 && t <= now + DAY);
+  if (!ts.length) return null;
+  const day = (t) => { const d = new Date(t); return d.getFullYear() + "-" + d.getMonth() + "-" + d.getDate(); };
+  const inN = (n) => ts.filter(t => now - t <= n * DAY);
+  const t7 = inN(7), t30 = inN(30);
+  const oldest = Math.min.apply(null, ts);
+  return { d7: new Set(t7.map(day)).size, d30: new Set(t30.map(day)).size, n7: t7.length, n30: t30.length,
+           partial: ts.length >= 20 && now - oldest < 30 * DAY, at: now };
+}
 function markNoUse(sub, now) {
+  sub.useStats = { d7: 0, d30: 0, n7: 0, n30: 0, partial: false, at: now };
   sub.timeOk = true;
   sub.watchTitle = null;
   sub.sig = "";
-  if (sub.lastWatched && !sub.lastUsedFloor) { sub.lastUsed = sub.lastWatched; return; }
-  if (!sub.lastUsed || sub.lastUsedFloor) { sub.lastUsed = now - 90 * DAY; sub.lastUsedFloor = true; }
+  // 只认官方记录里出现过的时间（lastWatched）；按浏览器访问留下的 lastUsed 不算，否则会显示成「按使用记录 · 今天」
+  if (sub.lastWatched) { sub.lastUsed = sub.lastWatched; sub.lastUsedFloor = false; return; }
+  sub.lastUsed = now - 90 * DAY; sub.lastUsedFloor = true;
 }
 
 async function applyActivityResult(sub, r) {
@@ -620,12 +758,20 @@ async function applyActivityResult(sub, r) {
   const markFail = (reason) => {
     sub.signal.ok = false;
     sub.signal.reason = reason;
+    // 失败细节（只有状态码 / 报错 / 最终网址，不含页面内容），显示在卡片上方便排查
+    sub.signal.detail = r ? [r.error, (r.debug || []).join("；"), r.pageUrl && !/^https:\/\/[^/]+\/?$/.test(r.pageUrl) ? "页面：" + String(r.pageUrl).split("?")[0] : ""].filter(Boolean).join("　").slice(0, 300) : "没有读取结果";
     sub.signal.fails = (sub.signal.fails || 0) + 1;
     if (!sub.signal.since) sub.signal.since = now;
     return false;
   };
 
   if (!r) return markFail("read_failed");
+  // 附加信息（DeepSeek API 余额等）：读到就存，和使用记录成不成功无关
+  if (r.info) {
+    sub.apiInfo = Object.assign({}, r.info, { at: now });
+    // 接口里读到了订阅（智谱 GLM Coding Plan）：套餐以它为准（账户页只看得到余额）
+    if (r.info.planName && sub.account) sub.account = Object.assign({}, sub.account, { status: "ok", plan: { label: r.info.planName, paid: true } });
+  }
   if (r.loggedOut === true) return markFail("logged_out");
   // 官方记录读到了，但一条都没有（从没用过，或记录范围里没用过）→ 按闲置算：
   // 以前读到过使用时间就保留那个时间；否则记成「90 天+未使用」
@@ -655,6 +801,7 @@ async function applyActivityResult(sub, r) {
     if (ttl) sub.watchTitle = { title: String(ttl).slice(0, 80), at: watched, exact: r.lastTs > 0 };
     sub.watchAt = now;          // 什么时候读的观看记录（多台设备同步时以读得晚的为准）
     sub.timeOk = true;          // 这次读到了观看时间（A：接口给的具体时间 / B：页面上的日期）
+    sub.useStats = useStatsFromIds(r.ids, now);   // 读不出每条时间的（YouTube 按天分组）为 null
     sub.lastUsed = watched;
     sub.lastUsedFloor = false;
     sub.sig = sig;
@@ -1319,7 +1466,8 @@ async function catalogDiagnose(id) {
     const ar = await readActivity(getProviderConfig({ provider: p.activity }));
     activity = ar ? { count: (ar.ids || []).length, ids: (ar.ids || []).slice(0, 5), topLabel: ar.topLabel || "", loggedOut: ar.loggedOut, url: ar.pageUrl || "",
                       lastTs: ar.lastTs || 0, sample: ar.sample || ar.sampleTitles || [], calls: ar.calls || null, fresh: ar.fresh || null,
-                      source: ar.source || (ar.fallback ? "页面卡片" : ""), hrefs: ar.hrefs || null, pageUrl: ar.pageUrl || "" } : { error: true };
+                      source: ar.source || (ar.fallback ? "页面卡片" : ""), hrefs: ar.hrefs || null, pageUrl: ar.pageUrl || "",
+                      empty: !!ar.empty, detail: [ar.error, (ar.debug || []).join("；")].filter(Boolean).join("　") } : { error: true };
     // 诊断时读到的观看记录也直接更新到订阅上（和点「检查」效果一样）
     if (activity && a.status === "logged_out") activity.guestOnly = true;   // 账户页没登录：观看记录不采用
     if (ar && ar.ids && ar.ids.length && a.status !== "logged_out") {
@@ -1447,7 +1595,7 @@ function notifySignalLost(sub, reason, brokenDays) {
 }
 
 // 检查时读取活动记录 / 大模型数据会写回订阅的这些字段
-const REFRESH_FIELDS = ["watchTitle", "loginState", "timeOk", "lastChecked", "signal", "signalNotified", "sig", "lastUsed", "lastUsedFloor", "lastWatched", "watchAt", "notified", "llm",
+const REFRESH_FIELDS = ["apiInfo", "useStats", "watchTitle", "loginState", "timeOk", "lastChecked", "signal", "signalNotified", "sig", "lastUsed", "lastUsedFloor", "lastWatched", "watchAt", "notified", "llm",
                         "account", "price", "currency", "priceSource", "priceEstimated"];
 const CHECK_CONCURRENCY = 4;          // 同时最多读几个（每个读取可能要在后台开一个标签页）
 const ACCOUNT_FRESH_MS = 3 * DAY;     // 全部检查时，多久内读过的账户页不再重新打开
@@ -1688,8 +1836,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     try {
       switch (msg && msg.type) {
         case "GET_STATE": {
-          const { subs = [], records = [], lastCheck = null, paused = false, subOrder = null, pendingGrant = null } =
-            await chrome.storage.local.get(["subs", "records", "lastCheck", "paused", "subOrder", "pendingGrant"]);
+          const { subs = [], records = [], lastCheck = null, paused = false, subOrder = null, pendingGrant = null, pinnedSub = null, pinnedSubs = null } =
+            await chrome.storage.local.get(["subs", "records", "lastCheck", "paused", "subOrder", "pendingGrant", "pinnedSub", "pinnedSubs"]);
+          // 置顶（最多 3 个，按置顶先后）；兼容 2.41 只能置顶一个时存的 pinnedSub
+          const pinIds = (Array.isArray(pinnedSubs) ? pinnedSubs : pinnedSub ? [pinnedSub] : []).filter(id => subs.some(x => x.id === id)).slice(0, 3);
           const { mailScan = null, mailIgnored = [], mailPrefs = {}, grantResult = null, history = null } =
             await chrome.storage.local.get(["mailScan", "mailIgnored", "mailPrefs", "grantResult", "history"]);
           const histOn = await hasHistoryPermission();
@@ -1697,7 +1847,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           verifyAuth(false).catch(() => {});   // 隔一段时间向服务端确认一次，不阻塞弹窗
           // 打开弹窗时如果超过 10 分钟没同步，拉一下云端（别的设备可能改过）
           getSyncState().then(s => { if (s.enabled && authNow && Date.now() - (s.lastSyncAt || 0) > 10 * 60000) syncNow("open").catch(() => {}); });
-          sendResponse({ ok: true, subs, records, lastCheck, paused, pendingGrant, order: (subOrder && subOrder.ids) || null, mailScan, mailIgnored, mailPrefs, grantResult,
+          sendResponse({ ok: true, subs, records, lastCheck, paused, pendingGrant, order: (subOrder && subOrder.ids) || null,
+                         pinned: pinIds, mailScan, mailIgnored, mailPrefs, grantResult,
             history: histOn && history ? { scannedAt: history.scannedAt, hits: history.hits } : null, historyPermission: histOn,
             auth: publicAuth(authNow), subLimit: AuthLib.subLimit(authNow), guestLimit: AuthLib.GUEST_SUB_LIMIT,
             googleLogin: !!AuthLib.GOOGLE_CLIENT_ID,
@@ -1768,6 +1919,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         }
         case "AUTH_VERIFY": {
           sendResponse({ ok: true, auth: publicAuth(await verifyAuth(true)) });
+          break;
+        }
+        case "SET_PIN": {
+          // 置顶：最多 3 个，存本机（ids 为置顶的订阅，按置顶先后）
+          const ids = Array.isArray(msg.ids) ? msg.ids.filter(x => typeof x === "string").slice(0, 3) : [];
+          await chrome.storage.local.set({ pinnedSubs: ids });
+          await chrome.storage.local.remove("pinnedSub");
+          sendResponse({ ok: true });
           break;
         }
         case "SET_ORDER": {

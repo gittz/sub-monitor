@@ -45,6 +45,10 @@ console.log("== 用量与采样 ==");
 const u = L.pickUsage({ five_hour: { utilization: 12.4, resetsAt: "x" }, seven_day: { utilization: 30 }, seven_day_opus: { utilization: 5 } });
 check("映射 5 小时 / 本周 / 高阶模型", u.fiveHour === 12 && u.week === 30 && u.weekOpus === 5);
 check("没有用量", L.pickUsage(null) === null);
+const ur = L.pickUsage({ five_hour: { utilization: 49, resetsAt: "2026-10-29T06:20:00.581975+00:00" }, seven_day: { utilization: 8, resetsAt: "2026-11-04T16:00:00.581999+00:00" } });
+check("Claude 重置时间（实测格式）换成毫秒", ur.fiveHourReset === Date.parse("2026-10-29T06:20:00.581Z") && ur.weekReset === Date.parse("2026-11-04T16:00:00.581Z"));
+const um = L.pickUsage({ codex_primary: { utilization: 0, windowSec: 2592000, resetsAt: 1795840996000 } });
+check("Codex 免费账号 30 天窗口（实测）→ 本月额度", um.month === 0 && um.monthReset === 1795840996000 && um.week === null && um.fiveHour === null);
 let samples = [];
 for (let i = 27; i >= 0; i--) samples = L.addSample(samples, { fiveHour: 10, week: 8 + (i % 3) }, NOW - i * DAY);
 check("每天一个采样，28 个", samples.length === 28);
@@ -132,14 +136,19 @@ async function pageTests() {
       last_active_subscription: { purchase_origin_platform: "chatgpt_ios", will_renew: true } } } });
     if (url.startsWith("/backend-api/conversations")) return res(200, { items: [
       { id: "1", title: "SECRET", update_time: 1790500000.5 }, { id: "2", title: "y", update_time: "2026-09-01T00:00:00Z" }], total: 2 });
+    if (url === "/backend-api/wham/usage") return res(200, { plan_type: "plus", rate_limit: { allowed: true,
+      primary_window: { used_percent: 12, limit_window_seconds: 18000, reset_after_seconds: 3600, reset_at: 1793300000 },
+      secondary_window: { used_percent: 30, limit_window_seconds: 604800, reset_after_seconds: 400000, reset_at: 1793700000 } } });
     return res(404, {});
   }, "https://chatgpt.com/");
   r = await P.llmReadPage({ kind: "chatgpt" });
+  const cu = L.pickUsage(r.usage);
+  check("Codex 额度：按窗口长度分成 5 小时 / 本周，重置时间换成毫秒", cu.fiveHour === 12 && cu.week === 30 && cu.fiveHourReset === 1793300000000 && cu.weekReset === 1793700000000 && cu.source === "codex", JSON.stringify(cu));
   check("读取成功", r.ok && r.loggedOut === false);
   check("套餐 / 渠道 / 自动续费", r.plan.plan_type === "plus" && r.plan.origin === "chatgpt_ios" && r.plan.will_renew === true && !r.plan.business);
   check("续费日", r.renew === "2026-10-10T00:00:00Z");
   check("对话时间（秒级和 ISO 都有）", r.timestamps.length === 2 && L.parseTs(r.timestamps[0]) === 1790500000500);
-  check("后端接口都带了令牌", auth.length === 2);
+  check("后端接口都带了令牌", auth.length === 3);
   check("诊断结构里没有令牌、邮箱、标题", !/TKN|me@x\.com|SECRET/.test(JSON.stringify(r.shapes)));
 
   P = load(async (url) => url === "/api/auth/session" ? res(200, {}) : res(404, {}), "https://chatgpt.com/");

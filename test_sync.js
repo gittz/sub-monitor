@@ -114,5 +114,17 @@ t("改了价格要上传", !S.sameSynced({ subs: [edited], deleted: {} }, { subs
   m = S.merge({ subs: [loc], deleted: {} }, { subs: [other], deleted: {} }, NOW);
   t("另一台设备读得更晚（昨天看过）：用它的", m.subs[0].lastUsed === NOW - DAY && m.subs[0].watchAt === NOW - 60e3);
 }
+{
+  // 额度重置时间：云端（旧版本设备）给的是 ISO 字符串或没有 → 统一成毫秒，没有就保留本机的
+  const wk = Date.parse("2026-11-04T16:00:00.000Z");
+  const loc = { id: "c1", name: "Claude", mode: "activity", provider: "claude", updatedAt: NOW - 1000,
+                llm: { updatedAt: NOW - 3600e3, usage: { week: 8, weekReset: wk, fiveHour: 49, fiveHourReset: NOW + 3600e3 } } };
+  const cloud = { id: "c1", name: "Claude", mode: "activity", provider: "claude", updatedAt: NOW - 2000,
+                  llm: { updatedAt: NOW - 60e3, usage: { week: 21, weekReset: "2026-11-04T16:00:00.581999+00:00", fiveHour: 0, fiveHourReset: null } } };
+  const m = S.merge({ subs: [loc], deleted: {} }, { subs: [cloud], deleted: {} }, NOW);
+  const u = m.subs[0].llm.usage;
+  t("云端额度更新：百分比用云端的，ISO 重置时间换成毫秒", u.week === 21 && u.weekReset === Date.parse("2026-11-04T16:00:00.581Z"), u);
+  t("云端没给 5 小时重置时间：保留本机读到的", u.fiveHourReset === NOW + 3600e3, u);
+}
 console.log(`\n结果：${pass} 通过 / ${fail} 失败`);
 if (fail) process.exitCode = 1;
