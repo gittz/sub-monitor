@@ -53,3 +53,29 @@ test("图标和产品标题共同指向官网并在新标签打开", async t => 
   assert.ok(link.contains(ui.$(".ih-name")));
   assert.match(link.rel, /noopener/);
 });
+
+test("剪贴板接口被拒（侧边栏没焦点）时改用 execCommand 复制", async t => {
+  const ui = await createPopup(t, {}, {clipboardError: true});
+  let used = null;
+  ui.window.document.execCommand = (cmd) => { used = cmd; return true; };
+  ui.$("#accountMenuButton").click(); ui.$("#copyFeedbackEmail").click(); await delay();
+  assert.equal(used, "copy");
+  assert.match(ui.$("#feedbackCopyStatus").textContent, /已复制/);
+  assert.equal(ui.window.document.querySelectorAll("textarea[readonly]").length, 0, "临时文本框要移除");
+});
+
+test("在菜单里按下按钮时焦点短暂离开，不能把菜单收起（否则点击会丢）", async t => {
+  const ui = await createPopup(t);
+  ui.$("#accountMenuButton").click();
+  const link = ui.$("#feedbackEmailLink"), copy = ui.$("#copyFeedbackEmail");
+  link.focus();
+  // 真实浏览器的顺序：按下 → 旧元素 focusout（此时 activeElement 是 body）→ 新元素获得焦点 → click
+  link.dispatchEvent(new ui.window.FocusEvent("focusout", { bubbles: true, relatedTarget: copy }));
+  await delay(5);
+  assert.equal(ui.$("#accountMenuPanel").hidden, false, "焦点转到菜单内的按钮时不收起");
+  link.dispatchEvent(new ui.window.FocusEvent("focusout", { bubbles: true, relatedTarget: null }));
+  copy.click(); await delay();
+  assert.equal(ui.$("#accountMenuPanel").hidden, false);
+  assert.deepEqual(ui.copied, ["jiago12345@gmail.com"]);
+  assert.match(ui.$("#feedbackCopyStatus").textContent, /已复制/);
+});
