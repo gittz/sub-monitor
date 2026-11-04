@@ -12,8 +12,7 @@
     "alarms",
     "notifications",
     "identity",
-    "sidePanel",
-    "clipboardWrite"
+    "sidePanel"
   ],
   "host_permissions": [
     "*://*.youtube.com/*"

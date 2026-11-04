@@ -8,8 +8,8 @@
       <div class="account-menu-identity" hidden></div>
       <a id="feedbackEmailLink" class="account-menu-item" href="mailto:jiago12345@gmail.com?subject=IdleSubs%20建议与反馈">建议与反馈 <span aria-hidden="true">↗</span></a>
       <span class="feedback-address">jiago12345@gmail.com</span>
-      <button type="button" id="copyFeedbackEmail" class="account-menu-item">复制邮箱地址</button>
-      <span id="feedbackCopyStatus" class="feedback-copy-status" role="status"></span>
+<!--      <button type="button" id="copyFeedbackEmail" class="account-menu-item">复制邮箱地址</button>-->
+<!--      <span id="feedbackCopyStatus" class="feedback-copy-status" role="status"></span>-->
       <a href="#" id="signOut" class="account-menu-item account-signout" hidden>退出登录</a>
     </div>`;
   }
