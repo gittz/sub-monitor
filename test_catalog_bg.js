@@ -121,6 +121,26 @@ const wait = (ms) => new Promise(r => realTimeout(r, ms));
   r = await B.send({ type: "CATALOG_ADD", id: "claude" });
   t("大模型不走目录添加（有专门的读取）", !r.ok);
 
+  // 6b. 添加时发现没登录 → 打开登录页；登录完回到服务网站后自动重新读
+  {
+    const pg2 = Object.assign({}, pages, { [bp.accountUrl]: { text: "百度网盘\n登录\n扫码登录\n账号密码登录" } });
+    const BL = boot(pg2);
+    const rl = await BL.send({ type: "CATALOG_ADD", id: "baidu-pan" });
+    t("没登录：订阅照样建好，返回 loginOpened，并打开登录页（账户页没登录会跳登录）", rl.ok && rl.status === "logged_out" && rl.loginOpened === true && BL.store.subs.length === 1 && BL.opened.filter(u => u === bp.accountUrl).length === 2);
+    const watches = vm.runInContext("loginWatches", BL.ctx);
+    t("没登录：开始等这个标签页登录完成", watches.size === 1);
+    const [tabId, w] = [...watches.entries()][0];
+    w.openedAt -= 10000;
+    pg2[bp.accountUrl] = { text: "我的会员\n超级会员 SVIP\n已用 120GB / 5TB\n" + "x".repeat(300) };
+    (BL.listeners.tu || []).forEach(f => f(tabId, { status: "complete" }, { id: tabId, url: "https://pan.baidu.com/passport/login?x=1" }));
+    await wait(40);
+    t("还停在登录页：不读", BL.store.subs[0].account.status === "logged_out");
+    (BL.listeners.tu || []).forEach(f => f(tabId, { status: "complete" }, { id: tabId, url: "https://pan.baidu.com/disk/main" }));
+    for (let i = 0; i < 40 && BL.store.subs[0].account.status !== "ok"; i++) await wait(25);
+    await wait(20);
+    t("登录完回到网盘页面：自动重新读，套餐读到了，不再等", BL.store.subs[0].account.status === "ok" && BL.store.subs[0].account.plan.paid === true && watches.size === 0);
+  }
+
   // 7. 闲置 + 续费前 3 天 → 提醒一次
   B = boot(pages);
   await B.send({ type: "CATALOG_ADD", id: "baidu-pan" });

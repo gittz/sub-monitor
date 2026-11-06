@@ -61,7 +61,7 @@
               [/X_?PREMIUM_?PLUS|PREMIUM\+/i, "X Premium+", true]],
       free: /"subscriptions"\s*:\s*\[\s*\]/i },
     // Cursor：套餐读后台自己用的用量接口（返回 JSON），看 membershipType。free 已实测，其它取值按 Cursor 的套餐名写
-    { id: "cursor", name: "Cursor", cat: "ai", domains: ["cursor.com"], accountUrl: "https://cursor.com/api/usage-summary",
+    { id: "cursor", name: "Cursor", cat: "ai", domains: ["cursor.com"], accountUrl: "https://cursor.com/api/usage-summary", loginUrl: "https://cursor.com/dashboard",
       currency: "$", activity: "cursor", skipPagePrice: true,
       plans: [[/"membershipType"\s*:\s*"ultra"/i, "Ultra", true], [/"membershipType"\s*:\s*"pro_?plus"/i, "Pro+", true],
               [/"membershipType"\s*:\s*"free_trial"/i, "Pro 试用", true], [/"membershipType"\s*:\s*"pro"/i, "Pro", true],

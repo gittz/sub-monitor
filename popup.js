@@ -936,6 +936,12 @@ async function showLlmResult(kind, r) {
   if (!r || !r.ok) {
     stEl.className = "secstatus bad";
     if (r && r.reason === "limit") { stEl.innerHTML = limitText(); busyToast(""); return; }
+    if (r && r.reason === "logged_out" && r.loginOpened) {
+      stEl.className = "secstatus";
+      stEl.textContent = `本浏览器还没登录 ${name}，已为你打开登录页。登录完成后会自动添加。`;
+      busyToast(`请先登录 ${name}`, "busy");
+      return;
+    }
     stEl.textContent = (LLM_ERR[r && r.reason] || LLM_ERR.read_failed)(name);
     busyToast(`${name} 没添加成功`, "bad");
     return;
@@ -1229,13 +1235,14 @@ function showCatalogResult(p, r) {
   const a = (r.sub && r.sub.account) || {};
   const MSG = {
     ok: () => `已添加 ${p.name}：${a.plan.label}${a.price ? `，${a.price.currency}${a.price.monthly}/月` : ""}${a.renewAt ? `，${new Date(a.renewAt).toLocaleDateString("zh-CN")} 续费` : ""}。`,
-    logged_out: () => `已添加 ${p.name}，但本浏览器没登录，读不到套餐。登录后在列表里点「检查」。`,
+    logged_out: () => r.loginOpened ? `已添加 ${p.name}。本浏览器还没登录，已为你打开 ${p.name} 的登录页，登录完成后会自动读取套餐和使用情况。`
+                                    : `已添加 ${p.name}，但本浏览器没登录，读不到套餐。登录后在列表里点「检查」。`,
     unknown: () => `已添加 ${p.name}，但没认出套餐。可以先在本浏览器打开 ${p.name} 确认已登录，再在列表里点「检查」。`,
     read_failed: () => `已添加 ${p.name}，但账户页没读到内容。先在本浏览器打开确认能正常访问，再点「检查」。`
   };
   stEl.className = a.status === "ok" ? "secstatus" : "secstatus bad";
   stEl.textContent = (MSG[a.status] || MSG.unknown)();
-  busyToast(a.status === "ok" ? `已添加 ${p.name}` : `已添加 ${p.name}，套餐没读到`, a.status === "ok" ? "ok" : "bad");
+  busyToast(a.status === "ok" ? `已添加 ${p.name}` : a.status === "logged_out" && r.loginOpened ? `请先登录 ${p.name}` : `已添加 ${p.name}，套餐没读到`, a.status === "ok" ? "ok" : a.status === "logged_out" && r.loginOpened ? "busy" : "bad");
   if (p.activity) stEl.textContent += " 另外会读取它的观看/播放记录来判断是否在用。";
 }
 // 卡片里点到的可能是头像 / 文字，往上找带 data-cat 的元素

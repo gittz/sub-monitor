@@ -201,7 +201,9 @@ console.log("== 官方记录为空 → 按闲置算 ==");
 
 {
   const c7 = loadBackground("https://x.com/", fakeDocWith([]));
-  const now = Date.now(), mn = (t) => Math.floor(t / 60000);
+  // 固定在中午算，免得「3 天前」和「3 天前再早 10 分钟」跨过零点
+  const noon = new Date(); noon.setHours(12, 0, 0, 0);
+  const now = noon.getTime(), mn = (t) => Math.floor(t / 60000);
   const u = c7.useStatsFromIds(["a@" + mn(now - 3600e3), "b@" + mn(now - 3 * 86400e3), "c@" + mn(now - 3 * 86400e3 - 600e3), "d@" + mn(now - 20 * 86400e3), "e@" + mn(now - 40 * 86400e3)], now);
   check("官方记录 → 近 7 天用了 2 天（3 条）、近 30 天 3 天（4 条）", u.d7 === 2 && u.n7 === 3 && u.d30 === 3 && u.n30 === 4 && !u.partial, JSON.stringify(u));
   check("没有时间的条目（YouTube 按天分组）→ null", c7.useStatsFromIds(["x", "y"], now) === null);

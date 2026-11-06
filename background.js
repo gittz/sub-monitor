@@ -114,7 +114,58 @@ async function openBgTab(url, active) {
 async function openUserTab(url) {
   try { const tab = await openBgTab(url, true); ownTabs.set(tab.id, Date.now() + OWN_USER_TAB_MS); } catch (e) {}
 }
-chrome.tabs.onRemoved.addListener(id => { ownTabs.delete(id); onReaderTabGone(id); });
+chrome.tabs.onRemoved.addListener(id => { ownTabs.delete(id); onReaderTabGone(id); onLoginTabGone(id); });
+
+// ---------- 添加时发现没登录：打开登录页，登录完自动接着读 ----------
+// 登录页地址：Claude / ChatGPT 用官方登录页；收录服务用 loginUrl，没有就用账户页（没登录会跳去登录），账户页是接口的用首页
+const LLM_LOGIN = { claude: "https://claude.ai/login", chatgpt: "https://chatgpt.com/auth/login" };
+function loginUrlOf(p) {
+  if (!p) return "";
+  if (p.loginUrl) return p.loginUrl;
+  if (p.accountUrl && !/\/(rest|api)\//.test(p.accountUrl)) return p.accountUrl;
+  return "https://" + p.domains[0] + "/";
+}
+const RE_LOGIN_PATH = /\/(login|log-in|signin|sign-in|sign_in|signup|auth|oauth|sso|ServiceLogin|account\/login)\b/i;
+const loginWatches = new Map();   // 标签页 id → { kind: "catalog" | "llm", id, domains, openedAt, lastTry }
+async function openLoginTab(url, watch) {
+  try {
+    const tab = await chrome.tabs.create({ url, active: true });
+    ownTabs.set(tab.id, Date.now() + OWN_USER_TAB_MS);   // 打开登录页不算一次使用
+    loginWatches.set(tab.id, Object.assign({ openedAt: Date.now(), lastTry: 0 }, watch));
+    return true;
+  } catch (e) { return false; }
+}
+// 登录完成的信号：这个标签页回到了服务自己的网站、而且不在登录页上；或者用户把标签页关了
+async function tryAfterLogin(tabId, why) {
+  const w = loginWatches.get(tabId);
+  if (!w || w.busy) return;
+  const now = Date.now();
+  if (why !== "closed" && now - w.lastTry < 15000) return;   // 同一页面反复跳转时别读太勤
+  w.busy = true; w.lastTry = now;
+  let ok = false;
+  try {
+    if (w.kind === "llm") {
+      const r = await llmQuickAdd(w.id, { fromWatch: true });
+      ok = !!(r && r.ok);
+    } else {
+      await runCheck([w.id]);
+      const s = (await getSubs()).find(x => x.id === w.id);
+      ok = !!(s && s.account && s.account.status !== "logged_out" && !(s.signal && s.signal.reason === "logged_out"));
+    }
+  } catch (e) { ok = false; }
+  w.busy = false;
+  // 读到了就不再盯；还没登录就继续等（最多盯 30 分钟），标签页关了也停
+  if (ok || why === "closed" || now - w.openedAt > 30 * 60000) loginWatches.delete(tabId);
+}
+function onLoginTabGone(tabId) { if (loginWatches.has(tabId)) tryAfterLogin(tabId, "closed"); }
+chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
+  const w = loginWatches.get(tabId);
+  if (!w || info.status !== "complete") return;
+  let u; try { u = new URL((tab && tab.url) || ""); } catch (e) { return; }
+  const onSite = (w.domains || []).some(d => hostMatches(u.hostname, d));
+  if (!onSite || RE_LOGIN_PATH.test(u.pathname) || Date.now() - w.openedAt < 3000) return;
+  setTimeout(() => tryAfterLogin(tabId, "nav"), 2500);   // 等登录状态写进 cookie
+});
 
 // ---------- 信号一：浏览器访问 ----------
 async function onVisit(url, tabId) {
@@ -1376,7 +1427,7 @@ async function syncOnce(reason) {
 }
 
 // ---------- 添加 / 诊断（弹窗和「授权后自动继续」共用） ----------
-async function llmQuickAdd(kind) {
+async function llmQuickAdd(kind, opts) {
   const site = LlmLib.LLM_SITES[kind];
   if (!site) return { ok: false, reason: "unknown_kind" };
   const lim0 = await limitCheck(subs0 => subs0.some(x => x.mode === "activity" && x.provider === kind));
@@ -1384,7 +1435,13 @@ async function llmQuickAdd(kind) {
   const r = await readLlm(kind);
   const now = Date.now();
   if (!r || r.error || r.loggedOut === true || !r.ok) {
-    return { ok: false, reason: (r && r.error) || (r && r.loggedOut ? "logged_out" : "read_failed"), shapes: r && r.shapes };
+    const reason = (r && r.error) || (r && r.loggedOut ? "logged_out" : "read_failed");
+    // 没登录：打开登录页，登录完自动再添加一次（watch 由 tryAfterLogin 调用时不重复开页）
+    let loginOpened = false;
+    if (reason === "logged_out" && !(opts && opts.fromWatch) && ![...loginWatches.values()].some(w => w.kind === "llm" && w.id === kind)) {
+      loginOpened = await openLoginTab(LLM_LOGIN[kind] || site.home, { kind: "llm", id: kind, domains: [site.domain] });
+    }
+    return { ok: false, reason, shapes: r && r.shapes, loginOpened };
   }
   const saved = await withLock(async () => {
     const subs = await getSubs();
@@ -1443,6 +1500,11 @@ function catalogAdd(id) {
       return s;
     });
     if (!saved) return await limitResult();
+    // 没登录：直接打开登录页，登录完自动重新读（账户页 + 使用记录）
+    if (saved.account && saved.account.status === "logged_out") {
+      const loginOpened = await openLoginTab(loginUrlOf(p), { kind: "catalog", id: saved.id, domains: p.domains });
+      return { ok: true, sub: saved, status: "logged_out", loginOpened };
+    }
     // 账户页刚读过，这里只补读一次观看记录
     if (saved.mode === "activity") runCheck([saved.id], { skipAccount: true }).catch(() => {});
     else historyScan().catch(() => {});   // 授权过浏览历史的话，马上补上装插件前的访问
