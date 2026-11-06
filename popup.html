@@ -496,11 +496,6 @@
   nav.tabs .tab:hover { color:var(--fg); }
   nav.tabs .tab.on { color:var(--accent); border-bottom-color:var(--accent); font-weight:600; }
   nav.tabs .ad-badge { position:static; margin-left:2px; }
-  .hero { display:flex; align-items:center; gap:12px; padding:16px 16px 4px; }
-  .hero > div { flex:1; }
-  .hero h2 { margin:0; font-size:18px; font-weight:700; letter-spacing:-.01em; color:var(--fg); }
-  .hero p { margin:5px 0 0; font-size:12.5px; color:var(--muted); }
-  .hero-art { display:inline-flex; filter:drop-shadow(0 4px 8px rgba(37,99,235,.18)); }
   .sv-stats { grid-template-columns:repeat(3,1fr); gap:8px; margin:12px 16px 0; }
   .sv-stat { position:relative; padding:11px 12px 10px; border-radius:10px; background:var(--cool); border:1px solid #eceef4; }
   .sv-stat > span { font-size:11.5px; color:#4b5563; }
@@ -657,7 +652,6 @@
     .sv-status { font-size:11px; padding:3px 6px; }
     .sv-thead, .sv-main { grid-template-columns:minmax(0,1fr) 78px 80px; gap:6px; }
     .sv-used { font-size:12px; white-space:nowrap; }
-    .hero-art { display:none; }
   }
   /* 深色按钮悬停时保持深底白字（通用的 button:hover 会把背景换成浅色） */
   .sv-sortdone:hover, .sv-sortdone:focus-visible { background:#1f2937; color:#fff; }
@@ -712,11 +706,6 @@
 
   <!-- 我的订阅 -->
   <div id="view-subs">
-    <div class="hero">
-      <div><h2>给订阅，做个小整理。</h2><p>每一笔开销，都心里有数。</p></div>
-      <span class="hero-art"><svg viewBox="0 0 40 32" width="50" height="40" aria-hidden="true"><defs><linearGradient id="lgb" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3b82f6"/><stop offset="1" stop-color="#1d4ed8"/></linearGradient></defs><rect x="6" y="2" width="30" height="20" rx="4" transform="rotate(-8 21 12)" fill="#93c5fd"/><rect x="2" y="7" width="32" height="22" rx="5" fill="url(#lgb)"/><rect x="2" y="12" width="32" height="3.2" fill="#1e40af" opacity=".45"/><path d="M10 20.5q2 2 4 0M19 20.5q2 2 4 0" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round"/><circle cx="33" cy="25" r="4.2" fill="#fb923c" stroke="#fff" stroke-width="1.6"/></svg></span>
-    </div>
-    <div id="pinCard" hidden></div>
     <div class="sv-stats">
       <div class="sv-stat"><span>我的订阅</span><b><em id="cnt">0</em><small>个</small></b></div>
       <div class="sv-stat"><span>每月订阅支出</span><b id="spend">$0</b><small class="sv-note" id="waste"></small></div>
@@ -731,6 +720,7 @@
     <div class="grantbar sv-callout" id="grantBar" hidden><span id="grantBarText"></span><button type="button" class="ad-btn sm" id="grantAll">一键授权</button></div>
     <div class="limitbar sv-callout" id="limitBar" hidden></div>
     <div class="histbar sv-callout" id="syncBar" hidden></div>
+    <div id="pinCard" hidden></div>
     <div class="sv-table">
       <div class="sv-thead"><span class="sv-th-prod">订阅产品<button type="button" class="sv-sortbtn" id="sortToggle" title="调整订阅的显示顺序"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 16 4 4 4-4M7 20V4M21 8l-4-4-4 4M17 4v16"/></svg><span>排序</span></button></span><span class="sv-th-fee">费用 / 月</span><span title="判断闲不闲置的依据：视频看观看记录、大模型看对话记录、其它看在本浏览器打开网站的时间">最近使用</span><span>使用状态</span></div>
       <div class="sv-sortbar" id="sortBar" hidden><span>按住左边的 <b>⋮⋮</b> 拖动，或用右边的箭头调整顺序</span><button type="button" class="sv-sortreset" id="sortReset" hidden title="不再用你排的顺序，改回按使用状态自动排（闲置的在前）">恢复自动排序</button><button type="button" class="sv-sortdone" id="sortDone">完成</button></div>
