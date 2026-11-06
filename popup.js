@@ -288,9 +288,9 @@ function pushUseRows(s, rows, now, quiet) {
 // 卡片内容：主指标（剩余额度 / 剩余空间 / 最近使用）+ 详情里的几行
 function pinCardData(s, now) {
   const md = (t) => new Date(t).toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" });
-  const mdhm = (t) => `${md(t)} ${new Date(t).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false })}`;
   // 没有重置时间：额度一点没用时窗口还没开始计时（Claude 这时不给重置时间），其它情况显示 --
-  const when = (x, used) => { const t = toMs(x); return t && t > now ? mdhm(t) : used === 0 ? "未开始计时" : "--"; };
+  // 置顶卡片：重置时间写成倒计时（还剩几天几小时几分），没有重置时间时说明原因
+  const when = (x, used) => { const t = toMs(x); return t && t > now ? `${countdown(t - now, true)}后` : used === 0 ? "未开始计时" : "--"; };
   const pctLeft = (v) => Math.max(0, Math.min(100, 100 - Math.round(v)));
   const a = s.account || {};
   const L = s.llm;
@@ -760,14 +760,23 @@ function toMs(x) {
   const t = Date.parse(x);
   return isNaN(t) ? 0 : t;
 }
-function resetText(ts, long) {
-  const t = toMs(ts);
-  if (!t || t <= Date.now()) return "";
-  const d = new Date(t);
-  const hm = d.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
-  const md = d.toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" });
-  if (t - Date.now() < 86400000 && d.getDate() === new Date().getDate()) return `${hm} 重置`;
-  return long ? `${md} ${hm} 重置` : `${md} 重置`;
+// 距离重置还剩多久：long「6 天 20 小时 44 分」；短的（列表那行）只取最大的两级「6天20小时」「3小时12分」
+function countdown(ms, long) {
+  const m = Math.max(0, Math.floor(ms / 60000));
+  const d = Math.floor(m / 1440), h = Math.floor((m % 1440) / 60), mi = m % 60;
+  if (long) {
+    if (m < 1) return "不到 1 分钟";
+    return [d ? `${d} 天` : "", d || h ? `${h} 小时` : "", `${mi} 分`].filter(Boolean).join(" ");
+  }
+  if (d) return `${d}天${h}小时`;
+  if (h) return `${h}小时${mi}分`;
+  return m < 1 ? "不到1分钟" : `${mi}分钟`;
+}
+// 额度重置：显示还剩多少时间后重置；已过期的不显示
+function resetText(ts, long, now) {
+  const t = toMs(ts), n = now || Date.now();
+  if (!t || t <= n) return "";
+  return `${countdown(t - n, long)}后重置`;
 }
 function llmHtml(s) {
   const L = s.llm, st = L.stats || {};
@@ -1594,3 +1603,13 @@ refresh().then(() => { if (GRANT_WINDOW) runGrantWindow(); });
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === "local" && (changes.mailScan || changes.mailIgnored || changes.subs || changes.grantResult || changes.sync || changes.auth)) refresh();
 });
+
+// 额度倒计时每分钟走一次（有置顶卡片或列表里有重置时间时）；排序中或页面在后台时不刷新
+// 只在真正的插件页面里跑（测试环境的模拟 chrome 没有 runtime.id，定时器会让测试进程退不出）
+if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.id) setInterval(() => {
+  try {
+    if (document.hidden || sortMode || !state || !state.subs) return;
+    const has = state.subs.some(x => (x.llm && x.llm.usage && (x.llm.usage.weekReset || x.llm.usage.fiveHourReset || x.llm.usage.monthReset)) || (x.account && x.account.quota && x.account.quota.resetAt) || (x.apiInfo && x.apiInfo.quota && x.apiInfo.quota.resetAt));
+    if (has) renderSubs();
+  } catch (e) {}
+}, 60000);

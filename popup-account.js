@@ -8,8 +8,6 @@
       <div class="account-menu-identity" hidden></div>
       <a id="feedbackEmailLink" class="account-menu-item" href="mailto:jiago12345@gmail.com?subject=IdleSubs%20建议与反馈">建议与反馈 <span aria-hidden="true">↗</span></a>
       <span class="feedback-address">jiago12345@gmail.com</span>
-<!--      <button type="button" id="copyFeedbackEmail" class="account-menu-item">复制邮箱地址</button>-->
-<!--      <span id="feedbackCopyStatus" class="feedback-copy-status" role="status"></span>-->
       <a href="#" id="signOut" class="account-menu-item account-signout" hidden>退出登录</a>
     </div>`;
   }
@@ -41,39 +39,11 @@
     else if (restoreFocus) button.focus();
   }
 
-  // 侧边栏里 navigator.clipboard 常因「页面没有焦点」被拒（菜单按钮点下去时焦点还在别处），
-  // 所以失败时退回到老办法：临时放一个文本框选中后 execCommand("copy")
-  function legacyCopy(text) {
-    const ta = document.createElement("textarea");
-    ta.value = text;
-    ta.setAttribute("readonly", "");
-    ta.style.cssText = "position:fixed;top:-1000px;left:-1000px;opacity:0;";
-    document.body.appendChild(ta);
-    ta.focus(); ta.select();
-    let ok = false;
-    try { ok = document.execCommand && document.execCommand("copy"); } catch (e) { ok = false; }
-    ta.remove();
-    return !!ok;
-  }
-  async function copyEmail(root) {
-    const status = root.querySelector("#feedbackCopyStatus");
-    let ok = false;
-    try {
-      if (navigator.clipboard && navigator.clipboard.writeText) { await navigator.clipboard.writeText(feedbackEmail); ok = true; }
-    } catch (error) { ok = false; }
-    if (!ok) ok = legacyCopy(feedbackEmail);
-    status.textContent = ok ? "邮箱已复制" : "复制失败，请选中上方邮箱手动复制。";
-    // 复制失败时把邮箱选中，按 Ctrl+C 就能复制
-    if (!ok) { const addr = root.querySelector(".feedback-address"); try { const r = document.createRange(); r.selectNodeContents(addr); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); } catch (e) {} }
-  }
-
   function accountClick(root, event) {
     const target = event.target.closest("button,a");
     if (!target) return;
     if (target.id === "accountMenuButton") {
       setOpen(root, target.getAttribute("aria-expanded") !== "true");
-    } else if (target.id === "copyFeedbackEmail") {
-      copyEmail(root);
     } else if (target.id === "signOut" || target.id === "feedbackEmailLink" || target.dataset.login) {
       setOpen(root, false);
     }

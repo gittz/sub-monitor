@@ -169,22 +169,23 @@ setTimeout(async () => {
     t("列表小字：收录服务显示套餐和续费日", /^Premium · \d\d\/\d\d 续费$/.test(cap({ catalogId: "youtube", account: { status: "ok", plan: { label: "Premium" }, renewAt: Date.now() + 5 * DAY } })));
     const cb = w.capBarHtml({ provider: "claude", llm: { plan: { label: "Pro" }, usage: { week: 4 } } });
     t("列表小字：文字不变，额度另外画一条进度条", w.subCaptionHtml({ provider: "claude", llm: { plan: { label: "Pro" }, usage: { week: 4 } } }) === "Pro · 本周额度 4%" && /class="cap-bar"[^>]*><i style="width:4%">/.test(cb), cb);
-    const soon = Date.now() + 3 * 86400000;
+    const soon = Date.now() + 3 * 86400000 + 30 * 60000;   // 还剩 3 天 0 小时 30 分
     const md = new Date(soon).toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" });
-    t("列表小字：额度后面跟重置时间", w.subCaption({ provider: "claude", llm: { plan: { label: "Pro" }, usage: { week: 8, weekReset: soon } } }) === `Pro · 本周额度 8% · ${md} 重置`);
+    t("倒计时：还剩多久（长：天 / 小时 / 分；短：最大两级）", w.countdown((6 * 1440 + 20 * 60 + 44) * 60000, true) === "6 天 20 小时 44 分" && w.countdown((6 * 1440 + 20 * 60 + 44) * 60000) === "6天20小时" && w.countdown((3 * 60 + 12) * 60000) === "3小时12分" && w.countdown(44 * 60000, true) === "44 分" && w.countdown(20000, true) === "不到 1 分钟");
+    t("列表小字：额度后面跟重置时间", w.subCaption({ provider: "claude", llm: { plan: { label: "Pro" }, usage: { week: 8, weekReset: soon } } }) === `Pro · 本周额度 8% · 3天0小时后重置`);
     t("列表小字：ChatGPT 的 Codex 额度没用过时仍显示对话数", w.subCaption({ provider: "chatgpt", llm: { plan: { label: "Plus" }, stats: { convs7: 11 }, usage: { source: "codex", month: 0, monthReset: soon } } }) === "Plus · 近 7 天 11 个对话");
-    t("列表小字：ChatGPT 用了 Codex 时显示 Codex 额度和重置", w.subCaption({ provider: "chatgpt", llm: { plan: { label: "Plus" }, usage: { source: "codex", week: 30, weekReset: soon } } }) === `Plus · Codex 本周额度 30% · ${md} 重置`);
-    t("列表小字：Cursor 显示本月额度和重置", w.subCaption({ catalogId: "cursor", account: { status: "ok", plan: { label: "Pro" }, quota: { pct: 63.3, resetAt: soon, label: "本月额度" } } }) === `Pro · 本月额度 63% · ${md} 重置` && /cap-bar/.test(w.capBarHtml({ catalogId: "cursor", account: { status: "ok", plan: { label: "Pro" }, quota: { pct: 63.3, resetAt: soon, label: "本月额度" } } })));
+    t("列表小字：ChatGPT 用了 Codex 时显示 Codex 额度和重置", w.subCaption({ provider: "chatgpt", llm: { plan: { label: "Plus" }, usage: { source: "codex", week: 30, weekReset: soon } } }) === `Plus · Codex 本周额度 30% · 3天0小时后重置`);
+    t("列表小字：Cursor 显示本月额度和重置", w.subCaption({ catalogId: "cursor", account: { status: "ok", plan: { label: "Pro" }, quota: { pct: 63.3, resetAt: soon, label: "本月额度" } } }) === `Pro · 本月额度 63% · 3天0小时后重置` && /cap-bar/.test(w.capBarHtml({ catalogId: "cursor", account: { status: "ok", plan: { label: "Pro" }, quota: { pct: 63.3, resetAt: soon, label: "本月额度" } } })));
     t("列表小字：DeepSeek 显示 API 余额", w.subCaption({ catalogId: "deepseek", account: { status: "ok", plan: { label: "免费版", paid: false } }, apiInfo: { balance: 18.71, currency: "CNY" } }) === "免费版 · API 余额 ¥18.71");
-    t("列表小字：智谱 Coding Plan 显示 5 小时额度和重置", w.subCaption({ catalogId: "zhipu", account: { status: "ok", plan: { label: "GLM Coding Pro", paid: true } }, apiInfo: { balance: 0, currency: "CNY", quota: { pct: 42, resetAt: soon, label: "5 小时额度" } } }) === `GLM Coding Pro · 5 小时额度 42% · ${md} 重置`);
+    t("列表小字：智谱 Coding Plan 显示 5 小时额度和重置", w.subCaption({ catalogId: "zhipu", account: { status: "ok", plan: { label: "GLM Coding Pro", paid: true } }, apiInfo: { balance: 0, currency: "CNY", quota: { pct: 42, resetAt: soon, label: "5 小时额度" } } }) === `GLM Coding Pro · 5 小时额度 42% · 3天0小时后重置`);
     {
       const d1 = w.pinCardData({ provider: "chatgpt", llm: { plan: { label: "Free" }, usage: { week: 0, weekReset: soon } }, lastUsed: Date.now() }, Date.now());
-      t("置顶卡片：大模型中间是本周剩余额度，下面有周额度重置", d1.plan === "Free" && d1.main.title === "本周剩余额度" && d1.main.pct === 100 && d1.main.used === 0 && d1.rows.some(r => r[0] === "周额度重置" && /\d\d\/\d\d \d\d:\d\d/.test(r[1])), JSON.stringify(d1));
+      t("置顶卡片：大模型中间是本周剩余额度，下面有周额度重置", d1.plan === "Free" && d1.main.title === "本周剩余额度" && d1.main.pct === 100 && d1.main.used === 0 && d1.rows.some(r => r[0] === "周额度重置" && /^\d+ 天 \d+ 小时 \d+ 分后$/.test(r[1])), JSON.stringify(d1));
       const d2 = w.pinCardData({ provider: "claude", llm: { plan: { label: "Pro" }, usage: { week: 8, weekReset: soon, fiveHour: 49, fiveHourReset: soon } }, price: 20, currency: "$" }, Date.now());
       t("置顶卡片：Claude 还列出 5 小时剩余和两个重置时间、月费", d2.main.pct === 92 && d2.rows.some(r => r[0] === "5 小时剩余额度" && r[1] === "51%") && d2.rows.some(r => r[0] === "5 小时额度重置") && d2.rows.some(r => r[0] === "费用"));
       const iso = new Date(Date.now() + 5 * 86400000).toISOString();
       const d5 = w.pinCardData({ provider: "claude", llm: { plan: { label: "Pro" }, usage: { week: 21, weekReset: iso, fiveHour: 0, fiveHourReset: null } } }, Date.now());
-      t("置顶卡片：重置时间是 ISO 字符串（旧版本同步来的）也能显示；5 小时没用时写未开始计时", d5.rows.some(r => r[0] === "周额度重置" && /\d\d\/\d\d \d\d:\d\d/.test(r[1])) && d5.rows.some(r => r[0] === "5 小时额度重置" && r[1] === "未开始计时"), JSON.stringify(d5.rows));
+      t("置顶卡片：重置时间是 ISO 字符串（旧版本同步来的）也能显示；5 小时没用时写未开始计时", d5.rows.some(r => r[0] === "周额度重置" && /^\d+ 天 \d+ 小时 \d+ 分后$/.test(r[1])) && d5.rows.some(r => r[0] === "5 小时额度重置" && r[1] === "未开始计时"), JSON.stringify(d5.rows));
       const d6 = w.pinCardData({ catalogId: "deepseek", mode: "activity", provider: "deepseek", account: { status: "ok", plan: { label: "免费版" } }, lastUsed: Date.now() - 4 * 86400000, lastWatched: Date.now() - 4 * 86400000, timeOk: true, signal: { ok: true } }, Date.now());
       t("置顶卡片：DeepSeek 这类对话服务写「按对话记录」，不是观看记录；不列判断依据", d6.main.sub === "按对话记录" && !d6.rows.some(r => r[0] === "判断依据"), JSON.stringify(d6));
       const d7 = w.pinCardData({ catalogId: "deepseek", mode: "activity", provider: "deepseek", account: { status: "ok", plan: { label: "免费版" } }, apiInfo: { balance: 18.71, totalCost: 1.29, currency: "CNY", lastApiDay: Date.now() - 4 * 86400000 } }, Date.now());

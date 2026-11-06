@@ -5,6 +5,8 @@
 // 新增界面文字时，记得在这里补上英文；英文模式下没翻到的原文会记在 I18N.missing 里（开发时查）。
 (function () {
   const tr = (s) => I18N.tr(s);
+  // 倒计时：「6 天 20 小时 44 分」「6天20小时」→「6d 20h 44m」
+  const cdEn = (t) => String(t).replace(/不到\s*1\s*分钟/, "<1m").replace(/(\d+)\s*天\s*/g, "$1d ").replace(/(\d+)\s*小时\s*/g, "$1h ").replace(/(\d+)\s*分钟?/g, "$1m").trim();
   const plural = (n, one, many) => (Number(n) === 1 ? `${n} ${one}` : `${n} ${many}`);
 
   const D = {
@@ -483,7 +485,11 @@
     [/^「(.+)」是收录的服务，网址固定，不能改。套餐和使用情况从官方页面读取，访问次数按这些域名统计。$/, "\"$1\" is a supported service, so the URL is fixed. Plan and usage are read from its official pages, and visits are counted for these domains."],
 
     // 列表小字
-    [/^(.+) · (Codex )?(本周|5 小时|本月)额度 (\d+)% · (\d\d:\d\d|\d\d\/\d\d) 重置$/, (m, p, c, w, n, t) => `${tr(p)} · ${c || ""}${({ "本周": "weekly", "5 小时": "5-hour", "本月": "monthly" })[w]} quota ${n}% · resets ${t}`],
+    [/^(.+) · (Codex )?(本周|5 小时|本月)额度 (\d+)% · (.+)后重置$/, (m, p, c, w, n, t) => `${tr(p)} · ${c || ""}${({ "本周": "weekly", "5 小时": "5-hour", "本月": "monthly" })[w]} quota ${n}% · resets in ${cdEn(t)}`],
+    [/^(.+)后重置$/, (m, t) => `resets in ${cdEn(t)}`],
+    [/^（(.+)后重置）$/, (m, t) => ` (resets in ${cdEn(t)})`],
+    [/^(\d+ 天 )?(\d+ 小时 )?\d+ 分后$/, (m) => `in ${cdEn(m.replace(/后$/, ""))}`],
+    [/^不到 1 分钟后$/, "in under a minute"],
     [/^(.+) · Codex (本周|5 小时|本月)额度 (\d+)%$/, (m, p, w, n) => `${tr(p)} · Codex ${({ "本周": "weekly", "5 小时": "5-hour", "本月": "monthly" })[w]} quota ${n}%`],
     [/^(.+) · 本月额度 (\d+)%$/, (m, p, n) => `${tr(p)} · monthly quota ${n}%`],
     [/^本月额度：$/, "Monthly quota: "],
@@ -509,7 +515,7 @@
     [/^暂时读不到 · (\d\d:\d\d)$/, "Can't read · $1"],
     [/^(.+) \/ 月$/, "$1/mo"],
     [/^(.+) · API 余额 (.+)$/, (m, p, b) => `${tr(p)} · API balance ${b}`],
-    [/^(Codex )?(本周|5 小时|本月)额度已用 (\d+)%(，(.+) 重置)?$/, (m, c, w, n, x, t) => `${c || ""}${({ "本周": "Weekly", "5 小时": "5-hour", "本月": "Monthly" })[w]} quota ${n}% used${t ? ", resets " + t : ""}`],
+    [/^(Codex )?(本周|5 小时|本月)额度已用 (\d+)%(，(.+)后重置)?$/, (m, c, w, n, x, t) => `${c || ""}${({ "本周": "Weekly", "5 小时": "5-hour", "本月": "Monthly" })[w]} quota ${n}% used${t ? ", resets in " + cdEn(t) : ""}`],
     [/^（(\d\d\/\d\d )?(\d\d:\d\d) 重置）$/, (m, d, t) => ` (resets ${d || ""}${t})`],
     [/^（(\d\d\/\d\d) 重置）$/, " (resets $1)"],
     [/^(.+) · 本周额度 (\d+)%$/, (m, p, n) => `${tr(p)} · weekly quota ${n}%`],
