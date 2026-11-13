@@ -94,6 +94,19 @@ const t = (n, c) => { console.log((c ? "  ✓ " : "  ✗ ") + n); if (!c) proces
   }
 
   // 诊断
+  for (const kind of ["claude", "chatgpt"]) {
+    const page = { ...(kind === "claude" ? claudePage : gptPage), timestamps: [], convCount: 0,
+      usage: { seven_day: { utilization: 75 } } };
+    const quotaBoot = boot({ [kind]: page });
+    quotaBoot.store.subs = [{ id: "quota", name: kind, mode: "activity", provider: kind,
+      lastUsed: now - 142 * DAY, idleDays: 30, price: 20 }];
+    await quotaBoot.send({ type: "RUN_CHECK" });
+    const updated = quotaBoot.store.subs[0];
+    t(`${kind} 无对话但周额度已用 → 等待完整数据，不建议退订`, updated.llm.advice.level === "wait");
+    t(`${kind} 额度不伪造最后对话日期`, updated.lastUsed === now - 142 * DAY);
+    t(`${kind} 周额度已用 → 不发闲置/退订续费通知`, quotaBoot.notes.length === 0);
+  }
+
   B = boot({ claude: Object.assign({ shapes: { organizations: [{ uuid: "string" }] } }, claudePage) });
   r = await B.send({ type: "DIAGNOSE", sub: { provider: "claude" } });
   t("诊断返回套餐、统计、用量和字段结构", r.ok && r.llm && r.result.plan.key === "max5x" && r.result.stats.activeDays30 === 9 && r.result.usage.week === 9 && r.result.shapes.organizations);

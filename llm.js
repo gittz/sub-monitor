@@ -268,7 +268,12 @@
     const sd = g(/^seven_day$|^weekly$|week(?!.*(opus|sonnet))/i) || byWin.wk;
     const so = g(/seven_day_opus|opus/i);
     const mo = g(/^monthly$|^thirty_day$/i) || byWin.mo;
-    const v = (w) => (w && typeof w.utilization === "number" ? Math.round(w.utilization) : null);
+    // 小于 1% 也代表用过，不能四舍五入成零后丢失使用证据。
+    const v = (w) => {
+      const amount = w && w.utilization;
+      if (!Number.isFinite(amount)) return null;
+      return amount > 0 && amount < 1 ? amount : Math.round(amount);
+    };
     // 重置时间统一成毫秒数（Claude 给 ISO 字符串，Codex 给秒）
     const rs = (w) => {
       const x = w && w.resetsAt;
@@ -317,6 +322,10 @@
     if (plan.business) return { level: "none", text: "公司/团队付费的账号，不给退订建议。" };
     if (!plan.paid) return { level: "none", text: "当前是免费版，没有订阅费用。" };
 
+    if (SubLib.llmUsageIncomplete(llm, base)) {
+      return { level: "wait", text: "额度显示近期用过，对话记录未覆盖这些使用，暂不按对话数量建议退订或降档。" };
+    }
+
     if (st.activeDays30 === 0) {
       return { level: "cancel", text: `近 30 天一次都没用过${st.lastUsed ? `（最近一次是 ${Math.floor((base - st.lastUsed) / DAY)} 天前）` : ""}，还需要 ${plan.label} 吗？` };
     }
@@ -353,9 +362,10 @@
   }
 
   // 两家都付费、其中一家用得少很多 → 考虑只留一个
-  function crossAdvice(items) {
+  function crossAdvice(items, now) {
     const paid = (items || []).filter(x => x.llm && x.llm.plan && x.llm.plan.paid && !x.llm.plan.business && x.llm.stats);
     if (paid.length < 2) return null;
+    if (paid.some(x => SubLib.llmUsageIncomplete(x.llm, now))) return null;
     const sorted = paid.slice().sort((a, b) => b.llm.stats.activeDays30 - a.llm.stats.activeDays30);
     const hi = sorted[0], lo = sorted[sorted.length - 1];
     const h = hi.llm.stats.activeDays30, l = lo.llm.stats.activeDays30;

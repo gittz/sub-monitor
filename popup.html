@@ -508,10 +508,10 @@
   .sv-stat.warm b { color:var(--warm); }
   .sv-stat .sv-clock { position:absolute; right:10px; bottom:12px; color:#d6a35c; }
   .sv-stat.money b { color:var(--fg); }
-  .sv-banner { display:flex; align-items:center; gap:9px; width:calc(100% - 32px); margin:10px 16px 0; padding:10px 12px; border:0; border-radius:10px;
-               background:var(--warm-soft); color:#4b5563; font-size:12.5px; text-align:left; cursor:pointer; }
-  .sv-banner:hover { background:#f6ead6; }
-  .sv-banner span { flex:1; }
+  button.sv-stat { text-align:left; font-family:inherit; white-space:normal; }
+  button.sv-stat:hover { border-color:var(--warm); }
+  button.sv-stat:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  button.sv-stat[aria-pressed="true"] { box-shadow:inset 0 0 0 1px var(--warm); }
   .grantbar { display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:10px; background:#eef4ff; color:#1e3a8a; font-size:12.5px; line-height:1.5; }
   .grantbar[hidden] { display:none; }
   .grantbar span { flex:1; min-width:0; }
@@ -524,10 +524,6 @@
   .sv-watched b.muted { font-weight:400; color:var(--muted); }
   .sv-histlink { flex:none; padding-left:10px; margin-left:2px; border-left:1px solid var(--border); color:var(--accent); font-size:11.5px; text-decoration:none; white-space:nowrap; }
   .sv-histlink:hover { text-decoration:underline; }
-  .sv-banner span { white-space:normal; text-align:left; min-width:0; }
-  .sv-banner[hidden] { display:none; }
-  .sv-banner svg { flex:none; color:#a8784a; }
-  .sv-banner.on { box-shadow:inset 0 0 0 1.5px #e3c79c; }
   .sv-callout { margin:10px 16px 0 !important; }
   .sv-table { margin:12px 16px 0; }
   .sv-thead, .sv-main { display:grid; grid-template-columns:minmax(0,1fr) 66px 78px 84px; align-items:center; gap:8px; }
@@ -584,8 +580,7 @@
     nav.tabs .tab { color:#d6d3d1; }
     .ih-icon { background:transparent; }
     .sv-stat { border-color:rgba(255,255,255,.06); } .sv-stat.warm { border-color:rgba(217,119,6,.25); }
-    .sv-stat > span, .sv-banner, .sv-fee, .sv-used { color:#d6d3d1; }
-    .sv-banner:hover { background:rgba(217,119,6,.18); }
+    .sv-stat > span, .sv-fee, .sv-used { color:#d6d3d1; }
     .sv-status.baseline { background:rgba(59,91,171,.25); color:#a5b8ea; }
     .sv-status.signal_lost { background:rgba(234,88,12,.2); color:#fdba74; }
     .sv-status.unmonitored { background:rgba(255,255,255,.07); }
@@ -694,6 +689,7 @@
     <a class="ih-home" href="https://idlesubs.com/" target="_blank" rel="noopener noreferrer" aria-label="打开 IdleSubs 官网" title="打开官网"><span class="ih-logo"><svg viewBox="0 0 40 32" width="30" height="24" aria-hidden="true"><defs><linearGradient id="lga" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3b82f6"/><stop offset="1" stop-color="#1d4ed8"/></linearGradient></defs><rect x="6" y="2" width="30" height="20" rx="4" transform="rotate(-8 21 12)" fill="#93c5fd"/><rect x="2" y="7" width="32" height="22" rx="5" fill="url(#lga)"/><rect x="2" y="12" width="32" height="3.2" fill="#1e40af" opacity=".45"/><path d="M10 20.5q2 2 4 0M19 20.5q2 2 4 0" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round"/><circle cx="33" cy="25" r="4.2" fill="#fb923c" stroke="#fff" stroke-width="1.6"/></svg></span><b class="ih-name">IdleSubs</b></a><span class="ih-sub">闲置订阅</span>
     <span id="lastCheck"></span>
     <button type="button" class="ih-lang" id="langToggle" title="切换到英文">EN</button>
+    <div id="syncBar" class="header-sync" aria-live="polite" hidden></div>
     <span id="acct"></span>
   </header>
 
@@ -709,17 +705,11 @@
     <div class="sv-stats">
       <div class="sv-stat"><span>我的订阅</span><b><em id="cnt">0</em><small>个</small></b></div>
       <div class="sv-stat"><span>每月订阅支出</span><b id="spend">$0</b><small class="sv-note" id="waste"></small></div>
-      <div class="sv-stat warm"><span>值得再看一眼</span><b><em id="idleCnt">0</em><small>个</small></b>
-        <svg class="sv-clock" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
+      <button type="button" class="sv-stat warm" id="idleStat" aria-pressed="false" aria-controls="subList"><span>值得再看一眼</span><b><em id="idleCnt">0</em><small>个</small></b>
+        <svg class="sv-clock" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></button>
     </div>
-    <button type="button" class="sv-banner" id="idleBanner" hidden>
-      <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9.94 15.5A2 2 0 0 0 8.5 14.06l-6.13-1.58a.5.5 0 0 1 0-.96L8.5 9.94A2 2 0 0 0 9.94 8.5l1.58-6.13a.5.5 0 0 1 .96 0L14.06 8.5A2 2 0 0 0 15.5 9.94l6.13 1.58a.5.5 0 0 1 0 .96L15.5 14.06a2 2 0 0 0-1.44 1.44l-1.58 6.13a.5.5 0 0 1-.96 0z"/><path d="M20 3v4M22 5h-4M4 17v2M5 18H3"/></svg>
-      <span id="idleBannerText"></span>
-      <svg class="arr" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-    </button>
     <div class="grantbar sv-callout" id="grantBar" hidden><span id="grantBarText"></span><button type="button" class="ad-btn sm" id="grantAll">一键授权</button></div>
     <div class="limitbar sv-callout" id="limitBar" hidden></div>
-    <div class="histbar sv-callout" id="syncBar" hidden></div>
     <div id="pinCard" hidden></div>
     <div class="sv-table">
       <div class="sv-thead"><span class="sv-th-prod">订阅产品<button type="button" class="sv-sortbtn" id="sortToggle" title="调整订阅的显示顺序"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 16 4 4 4-4M7 20V4M21 8l-4-4-4 4M17 4v16"/></svg><span>排序</span></button></span><span class="sv-th-fee">费用 / 月</span><span title="判断闲不闲置的依据：视频看观看记录、大模型看对话记录、其它看在本浏览器打开网站的时间">最近使用</span><span>使用状态</span></div>

@@ -95,6 +95,26 @@ const SIGNAL_REASONS = {
 // 关键原则：signal_lost 必须优先于 idle。
 // 读不到数据时 lastUsed 会一直停在旧值，天数却在涨；
 // 若不拦住，就会对一个天天在用的服务发出"已闲置 N 天，建议退订"的错误建议。
+// 额度只能给出使用时间的范围，不能当作一条精确的对话时间写回 lastUsed。
+function llmQuotaEvidence(llm, now) {
+  const base = typeof now === "number" ? now : Date.now();
+  const checked = llm && llm.updatedAt, usage = llm && llm.usage;
+  if (!usage || !Number.isFinite(checked) || checked > base + 60000 || base - checked > 7 * DAY) return null;
+  const windows = [["week", 7 * DAY], ["weekOpus", 7 * DAY], ["fiveHour", 5 * 3600000]];
+  let since = null;
+  for (const [key, duration] of windows) {
+    const amount = usage[key], reset = usage[key === "weekOpus" ? "weekReset" : key + "Reset"];
+    if (!Number.isFinite(amount) || amount <= 0 || amount > 100) continue;
+    if (Number.isFinite(reset) && (reset <= checked || reset > checked + duration + 60000)) continue;
+    const start = Number.isFinite(reset) ? reset - duration : checked - duration;
+    since = Math.max(since || 0, start);
+  }
+  return since == null ? null : { since, days: Math.max(1, Math.floor((base - since) / DAY)) };
+}
+function llmUsageIncomplete(llm, now) {
+  const quota = llmQuotaEvidence(llm, now);
+  return !!(quota && quota.since > ((llm.stats && llm.stats.lastUsed) || 0));
+}
 function computeStatus(sub, now) {
   const base = typeof now === "number" ? now : Date.now();
   if (!sub || sub.mode === "none") return { state: "unmonitored", days: null, reason: null };
@@ -104,6 +124,10 @@ function computeStatus(sub, now) {
     return { state: "signal_lost", days: brokenDays, reason: sub.signal.reason || "read_failed" };
   }
 
+  const quota = (sub.provider === "claude" || sub.provider === "chatgpt") && llmQuotaEvidence(sub.llm, base);
+  if (quota && quota.since > (sub.lastUsedFloor ? 0 : sub.lastUsed || 0)) {
+    return { state: quota.days < (sub.idleDays || DEFAULT_IDLE_DAYS) ? "active" : "baseline", days: quota.days, reason: null, source: "quota" };
+  }
   if (!sub.lastUsed) return { state: "baseline", days: null, reason: null };
   const days = Math.floor((base - sub.lastUsed) / DAY);
   const threshold = sub.idleDays || DEFAULT_IDLE_DAYS;
@@ -161,6 +185,7 @@ function hasWatchTime(s) {
 }
 
 globalThis.SubLib = {
+  llmQuotaEvidence, llmUsageIncomplete,
   hasWatchTime,
   DAY, DEFAULT_IDLE_DAYS, SIGNAL_REASONS,
   normalizeDomain, hostMatches, parseLabelToTs, computeStatus, wastedPerMonth, shouldWarnSignal,

@@ -317,7 +317,7 @@ function pinCardData(s, now) {
     rows.push(["空间", a.storage.label]);
   } else {
     // 没有额度的服务：主指标是最近使用，右边列出判断依据和访问情况
-    main = { title: "最近使用", short: "最近使用", text: s.lastUsedFloor ? "90天+" : s.lastUsed ? fmtShort(s.lastUsed) : "—", sub: usageBasis(s, !!L).text };
+    main = { title: "最近使用", short: "最近使用", text: recentUsageText(s, now), sub: usageBasis(s, !!L).text };
     if (s.watchTitle && s.watchTitle.title && s.lastWatched && s.watchTitle.at === s.lastWatched) rows.push(["最近看", s.watchTitle.title]);
     pushUseRows(s, rows, now);
   }
@@ -327,7 +327,7 @@ function pinCardData(s, now) {
     if (s.apiInfo.totalCost != null) rows.push(["累计消费", `${cur}${Number(s.apiInfo.totalCost).toFixed(2)}`]);
     if (s.apiInfo.lastApiDay) rows.push(["最近调用", md(s.apiInfo.lastApiDay)]);
   }
-  if (main.pct != null) { rows.push(["最近使用", s.lastUsedFloor ? "90 天+" : s.lastUsed ? fmtShort(s.lastUsed) : "—"]); pushUseRows(s, rows, now, true); }
+  if (main.pct != null) { rows.push(["最近使用", recentUsageText(s, now)]); pushUseRows(s, rows, now, true); }
   if (s.price) rows.push(["费用", `${s.currency || "$"}${Number(s.price).toFixed(2)} / 月`]);
   const renew = (L && L.renewAt) || a.renewAt;
   if (renew) rows.push(["下次续费", md(renew)]);
@@ -392,10 +392,8 @@ function renderSubs() {
   $("lastCheck").textContent = state.lastCheck ? "上次检查 " + fmtDate(state.lastCheck) : "";
   if (!$("checkStatus").dataset.busy) $("checkStatus").textContent = state.lastCheck ? "上次全部检查：" + fmtCheck(state.lastCheck) : "";
   renderGrantBar();
-  $("idleBanner").hidden = !idle.length;
-  $("idleBannerText").textContent = svFilterIdle ? `正在看 ${idle.length} 项最近较少使用的订阅，点这里看全部。` : `有 ${idle.length} 项订阅最近较少使用，看看是否还需要。`;
-  $("idleBanner").classList.toggle("on", svFilterIdle);
   if (!idle.length) svFilterIdle = false;
+  $("idleStat").setAttribute("aria-pressed", String(svFilterIdle));
   $("svFilter").hidden = !svFilterIdle;
   document.querySelector(".sv-thead").hidden = !subs.length;
 
@@ -436,7 +434,8 @@ function renderSubs() {
     const known = !!(s.catalogId || isLlm || s.mode === "activity");
     const fee = s.price ? `${esc(s.currency || "$")}${Number(s.price).toFixed(2)}${s.priceEstimated ? "<small>按公开价估</small>" : ""}` : `<span style="color:var(--muted)">—</span>`;
     let used;
-    if (st.state === "idle") used = `${st.days} 天未使用`;
+    if (st.source === "quota") used = recentUsageText(s, now);
+    else if (st.state === "idle") used = `${st.days} 天未使用`;
     else if (s.lastUsedFloor) used = "90 天+未使用";
     else used = s.lastUsed ? fmtShort(s.lastUsed) : "—";
     const vs = visitStats(s.visitLog, now);
@@ -473,7 +472,7 @@ function renderSubs() {
     </div>`;
   }).join("");
 }
-$("idleBanner").addEventListener("click", () => { svFilterIdle = !svFilterIdle; renderSubs(); });
+$("idleStat").addEventListener("click", () => { svFilterIdle = !svFilterIdle; renderSubs(); });
 
 // 这台电脑上还没授权的订阅（多是别的设备同步来的）：一键授权，一个授权框里列出全部网站
 function renderGrantBar() {
@@ -601,7 +600,14 @@ function providerKind(s) {
 }
 // 对话 / 使用记录类（Gemini、Cursor 等）：没有片名，也不显示「观看记录」链接
 function isChatProvider(s) { const k = providerKind(s); return k === "chat" || k === "usage"; }
+function recentUsageText(s, now) {
+  const status = computeStatus(s, now);
+  if (status.source === "quota") return `${status.days} 天内用过`;
+  return s.lastUsedFloor ? "90 天+" : s.lastUsed ? fmtShort(s.lastUsed) : "—";
+}
 function usageBasis(s, isLlm) {
+  if (computeStatus(s).source === "quota")
+    return { text: "按额度判断", tip: "额度已消耗，证明近期用过；无法据此确定具体使用时间和对话次数" };
   // 对话类服务（Gemini、DeepSeek、Grok 等）不管调用方传没传，都按对话记录说；只有视频类才叫观看记录
   isLlm = isLlm || isChatProvider(s);
   if (providerKind(s) === "usage") {
@@ -626,6 +632,7 @@ function isOfficialUsage(s, isLlm) {
 }
 // 近 7 / 30 天用了几天：大模型来自对话列表统计，其它收录服务来自官方记录里每条的时间；拿不到返回 null
 function usageStats(s) {
+  if (SubLib.llmUsageIncomplete(s.llm)) return null;
   const L = s.llm && s.llm.stats;
   if (L && (L.activeDays30 != null || L.activeDays7 != null)) {
     return { d7: L.activeDays7 || 0, d30: L.activeDays30 || 0, n7: L.convs7, n30: L.convs30, partial: !!L.capped, unit: "个对话" };
@@ -636,7 +643,7 @@ function usageStats(s) {
 }
 function usageCells(s, vs, isLlm) {
   const b = usageBasis(s, isLlm);
-  const used = s.lastUsedFloor ? "90 天+" : s.lastUsed ? fmtShort(s.lastUsed) : "—";
+  const used = recentUsageText(s);
   const first = `<div title="${esc(b.tip)}"><span>最近使用</span><b>${esc(used)}</b><small>${esc(b.text)}</small></div>`;
   // 按浏览器访问的：最近使用就是最近访问，不重复显示，只留访问的三格（最近访问也就是判断依据）
   if (!isOfficialUsage(s, isLlm)) {
@@ -780,8 +787,9 @@ function resetText(ts, long, now) {
 }
 function llmHtml(s) {
   const L = s.llm, st = L.stats || {};
+  const incomplete = SubLib.llmUsageIncomplete(L);
   const ORIGIN = { apple: "经 App Store 付费，要在 iPhone 的订阅管理里退", google: "经 Google Play 付费，要在 Play 商店里退" };
-  const line1 = [`套餐 <b>${esc(L.plan ? L.plan.label : "未知")}</b>`,
+  const line1 = incomplete ? `套餐 <b>${esc(L.plan ? L.plan.label : "未知")}</b> · 额度显示近期用过，对话统计不完整` : [`套餐 <b>${esc(L.plan ? L.plan.label : "未知")}</b>`,
     T("近 30 天用了 {n} 天", { n: `<b>${st.activeDays30 || 0}</b>` }),
     T("近 7 天 {n} 个对话", { n: `<b>${st.convs7 || 0}</b>` })].join(" · ");
   let line2 = "";
@@ -799,8 +807,8 @@ function llmHtml(s) {
   if (L.renewAt) extra.push("下次续费 " + new Date(L.renewAt).toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" }));
   if (L.willRenew === false) extra.push("已关闭自动续费");
   if (L.origin && ORIGIN[L.origin]) extra.push(ORIGIN[L.origin]);
-  const adv = L.advice && L.advice.text ? `<div class="advice ${esc(L.advice.level)}">${esc(L.advice.text)}</div>` : "";
-  const cross = L.cross ? `<div class="advice cross">${esc(L.cross)}</div>` : "";
+  const adv = !incomplete && L.advice && L.advice.text ? `<div class="advice ${esc(L.advice.level)}">${esc(L.advice.text)}</div>` : "";
+  const cross = !incomplete && L.cross ? `<div class="advice cross">${esc(L.cross)}</div>` : "";
   return `<div class="llm"><div>${line1}</div>${line2}${extra.length ? `<div>${esc(extra.join(" · "))}</div>` : ""}</div>${cross}${adv}`;
 }
 
@@ -967,12 +975,11 @@ function renderSyncBar() {
   if (el.hidden) return;
   const sy = state.sync || {};
   if (!sy.enabled) {
-    el.innerHTML = `<span>云端同步：关</span><button id="syncOn">开启</button>
-      <div class="sub-hint">换电脑、重装插件后订阅不丢；多台电脑之间自动同步。上传订阅清单、价格、套餐、续费日、最近使用日期和访问次数（只有访问时间，不含网址）；浏览的网址、邮件内容不上传。</div>`;
+    el.innerHTML = `<span class="sync-copy" title="上传订阅清单及使用时间，不上传浏览网址或邮件内容"><span>云同步</span><small>未开启</small></span><button type="button" id="syncOn">开启</button>`;
   } else {
-    const when = sy.lastSyncAt ? fmtAgo(sy.lastSyncAt) : "还没同步过";
-    el.innerHTML = `<span>云端同步：已开启 · ${esc(when)}</span><a href="#" id="syncRun">立即同步</a> <a href="#" id="syncOff">关闭</a>` +
-      (sy.lastError ? `<div class="sub-hint bad">上次同步没成功：${esc(SYNC_ERR[sy.lastError] || sy.lastError)}</div>` : "");
+    const when = sy.lastSyncAt ? fmtAgo(sy.lastSyncAt) : "待同步";
+    const error = sy.lastError && (SYNC_ERR[sy.lastError] || sy.lastError);
+    el.innerHTML = `<span class="sync-copy${error ? " bad" : ""}" title="${esc(error || when)}"><span>云同步</span><small>${esc(error ? "同步失败" : when)}</small></span><button type="button" id="syncRun" title="立即同步" aria-label="立即同步">↻</button>`;
   }
 }
 function fmtAgo(ts) {
@@ -998,16 +1005,9 @@ $("syncBar").addEventListener("click", async (e) => {
   if (!id) return;
   e.preventDefault();
   if (id === "syncOn") {
-    const r = await syncAction({ type: "SYNC_SET", enabled: true }, "正在开启云端同步…");
-    if (r && r.ok) $("syncBar").insertAdjacentHTML("beforeend", `<div class="sub-hint">已开启，云端现在有 ${r.count} 个订阅。</div>`);
+    await syncAction({ type: "SYNC_SET", enabled: true }, "正在开启…");
   } else if (id === "syncRun") {
     await syncAction({ type: "SYNC_NOW" }, "正在同步…");
-  } else if (id === "syncOff") {
-    const choice = await askDialog("关闭云端同步？", "本机的订阅会保留。云端保存的数据可以留着（以后再开同步能接上），也可以一起删掉（其它设备上的本机数据不受影响）。",
-      [{ label: "取消", value: null }, { label: "关闭并删除云端数据", value: "del", kind: "danger" }, { label: "只关闭同步", value: "keep", kind: "primary" }]);
-    if (!choice) return;
-    const del = choice === "del";
-    await syncAction({ type: "SYNC_SET", enabled: false, deleteCloud: del }, "正在关闭…");
   }
 });
 

@@ -364,6 +364,12 @@
     "登录服务出错了，请稍后再试。": "The sign-in service had an error. Please try again later.",
 
     // ---- 云端同步 ----
+    "云同步": "Cloud sync",
+    "未开启": "Off",
+    "待同步": "Pending",
+    "同步失败": "Sync failed",
+    "正在开启…": "Enabling…",
+    "上传订阅清单及使用时间，不上传浏览网址或邮件内容": "Syncs subscriptions and usage times, without browsing URLs or email content",
     "云端同步：关": "Cloud sync: off",
     "开启": "Turn on",
     "换电脑、重装插件后订阅不丢；多台电脑之间自动同步。上传订阅清单、价格、套餐、续费日、最近使用日期和访问次数（只有访问时间，不含网址）；浏览的网址、邮件内容不上传。":

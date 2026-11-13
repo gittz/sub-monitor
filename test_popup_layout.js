@@ -15,7 +15,8 @@ function assertDashboardBeforeSubscriptions(ui) {
   const { $, window } = ui;
   const stats = $(".sv-stats"), sync = $("#syncBar"), pins = $("#pinCard");
   const follows = window.Node.DOCUMENT_POSITION_FOLLOWING;
-  assert.ok(stats.compareDocumentPosition(sync) & follows, "看板应在同步信息上方");
+  assert.equal(sync.closest("header"), ui.$("header"), "同步信息应在顶部");
+  assert.ok(sync.compareDocumentPosition(stats) & follows, "同步信息应在看板上方");
   assert.ok(sync.compareDocumentPosition(pins) & follows, "同步信息应在收藏卡片上方");
   assert.ok(pins.compareDocumentPosition($(".sv-table")) & follows, "收藏卡片应在普通列表上方");
 }
@@ -70,4 +71,36 @@ test("排序模式结束后收藏卡片恢复到看板下方，普通列表置�
   assert.equal(ui.$("#subList .sv-row").dataset.id, "3");
   assert.equal(ui.$("#pinCard [data-pin]").dataset.pin, "1");
   assertDashboardBeforeSubscriptions(ui);
+});
+
+test("移除重复闲置提示，点击看板可筛选、再次点击和显示全部可恢复", async t => {
+  const state = subscriptionState(["1"]);
+  state.subs[0].lastUsed = Date.now() - 60 * 86400000;
+  const ui = await createPopup(t, state);
+  assert.equal(ui.$("#idleBanner"), null);
+  assert.equal(ui.$("#syncBar").hidden, false);
+  const button = ui.$("#idleCnt").closest("button");
+  assert.ok(button, "值得再看一眼应为支持键盘的原生按钮");
+  assert.equal(button.getAttribute("aria-pressed"), "false");
+  button.click();
+  assert.equal(button.getAttribute("aria-pressed"), "true");
+  assert.equal(ui.$("#svFilter").hidden, false);
+  assert.deepEqual([...ui.$("#subList").children].map(row => row.dataset.id), ["1"]);
+  button.click();
+  assert.equal(ui.$("#subList").children.length, 3);
+  button.click();
+  ui.$("#svFilterClear").click();
+  assert.equal(ui.$("#subList").children.length, 3);
+  assert.equal(button.getAttribute("aria-pressed"), "false");
+  assertDashboardBeforeSubscriptions(ui);
+});
+
+test("无闲置订阅时点击看板不会隐藏正常订阅", async t => {
+  const ui = await createPopup(t, subscriptionState());
+  const button = ui.$("#idleCnt").closest("button");
+  assert.ok(button);
+  button.click();
+  assert.equal(button.getAttribute("aria-pressed"), "false");
+  assert.equal(ui.$("#svFilter").hidden, true);
+  assert.equal(ui.$("#subList").children.length, 3);
 });

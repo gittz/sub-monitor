@@ -4,7 +4,9 @@ const SRC = fs.readFileSync(path.join(__dirname, "llm.js"), "utf8");
 
 function load(fetchImpl, href) {
   const ctx = { console, setTimeout, Promise, JSON, Date, Math, Set, fetch: fetchImpl, location: { href: href || "https://claude.ai/" } };
-  ctx.globalThis = ctx; vm.createContext(ctx); vm.runInContext(SRC, ctx);
+  ctx.globalThis = ctx; vm.createContext(ctx);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, "lib.js"), "utf8"), ctx);
+  vm.runInContext(SRC, ctx);
   return ctx.LlmLib;
 }
 const L = load(null);
